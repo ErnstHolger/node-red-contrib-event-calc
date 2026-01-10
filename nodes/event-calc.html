@@ -13,7 +13,8 @@
             inputMappings: { value: [] },
             expression: { value: "" },
             triggerOn: { value: "any" },
-            outputTopic: { value: "calc/result" }
+            outputTopic: { value: "calc/result" },
+            externalTrigger: { value: false }
         },
         inputs: 1,
         outputs: 2,
@@ -213,6 +214,11 @@
         <label for="node-input-outputTopic"><i class="fa fa-bookmark"></i> Output Topic</label>
         <input type="text" id="node-input-outputTopic" placeholder="calc/result">
     </div>
+    <div class="form-row">
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-input-externalTrigger" style="width:auto; margin-right:5px;">
+        <label for="node-input-externalTrigger" style="width:auto;"> External Trigger - calculate on any input message</label>
+    </div>
 </script>
 
 <script type="text/html" data-help-name="event-calc">
@@ -233,6 +239,8 @@
         </dd>
         <dt>Output Topic</dt>
         <dd>Topic for output messages.</dd>
+        <dt>External Trigger</dt>
+        <dd>When enabled, any incoming message will trigger a calculation using the current cached values. Useful for time-based or event-driven calculations.</dd>
     </dl>
 
     <h3>Inputs</h3>

@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-event-calc",
-  "version": "0.1.4",
+  "version": "2.0.0",
   "description": "Node-RED nodes for event caching and calculations",
   "author": {
     "name": "Holger Amort"
@@ -13,7 +13,7 @@
     "calculation",
     "streaming"
   ],
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "homepage": "https://github.com/ErnstHolger/node-red-contrib-event-calc#readme",
   "bugs": {
     "url": "https://github.com/ErnstHolger/node-red-contrib-event-calc/issues"
@@ -29,6 +29,7 @@
       "event-in": "nodes/event-in.js",
       "event-topic": "nodes/event-topic.js",
       "event-calc": "nodes/event-calc.js",
+      "event-json": "nodes/event-json.js",
       "event-simulator": "nodes/event-simulator.js",
       "event-chart": "nodes/event-chart.js"
     }
@@ -37,7 +38,19 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "publish:dry": "npm publish --dry-run"
+    "deploy": "npm link",
+    "deploy:patch": "npm version patch --no-git-tag-version && npm link",
+    "deploy:minor": "npm version minor --no-git-tag-version && npm link",
+    "deploy:major": "npm version major --no-git-tag-version && npm link",
+    "publish:dry": "npm publish --dry-run",
+    "publish:patch": "npm version patch && npm publish && start https://flows.nodered.org/add/node",
+    "publish:minor": "npm version minor && npm publish && start https://flows.nodered.org/add/node",
+    "publish:major": "npm version major && npm publish && start https://flows.nodered.org/add/node",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed"
   },
-  "dependencies": {}
+  "devDependencies": {
+    "@playwright/test": "^1.57.0"
+  }
 }

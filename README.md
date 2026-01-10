@@ -1,10 +1,10 @@
 # node-red-contrib-event-calc
 
-Node-RED nodes for event caching and calculations with topic wildcard patterns.
+Node-RED nodes for event caching and streaming calculations with a local pub/sub event hub.
 
 ## Overview
 
-This package provides a central cache for event/streaming data values with reactive updates. It enables subscription to topic patterns and calculations when values change, making it easy to build event-driven data processing flows.
+This package provides a local in-memory event hub with topic-based publish/subscribe and latest-value caching for reactive data flows within Node-RED. Stream data from MQTT, OPC-UA, or any source, then perform calculations that trigger automatically when values update.
 
 ## Architecture
 
@@ -13,14 +13,14 @@ This package provides a central cache for event/streaming data values with react
 │  event-cache (config node)                                   │
 │  • Stores: Map<topic, {value, ts, metadata}>                │
 │  • Event emitter for topic updates                           │
-│  • Wildcard pattern matching                                 │
+│  • LRU eviction, optional TTL                                │
 └──────────────────────────────────────────────────────────────┘
          │                    │                    │
     ┌────▼────┐         ┌────▼────┐         ┌────▼────┐
     │event-in │         │event-   │         │event-   │
     │         │         │topic    │         │calc     │
     │ pushes  │         │subscribes│        │multi-sub│
-    │to cache │         │to pattern│        │+ expr   │
+    │to cache │         │to topic  │        │+ expr   │
     └─────────┘         └─────────┘         └─────────┘
 ```
 
@@ -53,30 +53,30 @@ The original message passes through, allowing insertion into existing flows.
 
 ### event-topic
 
-Subscribes to a topic pattern and outputs when matching topics update.
+Subscribes to a topic and outputs when that topic updates.
 
 **Properties:**
-- **Topic Pattern**: Pattern with wildcards (`?` for single level, `*` for any levels)
+- **Topic**: Exact topic to subscribe to
 - **Output Format**:
   - *Value only*: `msg.payload` = value
   - *Full entry*: `msg.payload` = `{value, ts, metadata}`
-  - *All matching*: `msg.payload` = `{topic1: value1, topic2: value2, ...}`
 - **Output on deploy**: Emit cached values when flow starts
 
 **Dynamic control via input:**
-- `msg.pattern`: Change subscription pattern
-- `msg.payload = 'refresh'`: Output all currently cached values
+- `msg.topic`: Change subscription topic
+- `msg.payload = 'refresh'`: Output current cached value
 
 ### event-calc
 
 Subscribes to multiple topics and evaluates an expression when values update.
 
 **Properties:**
-- **Input Variables**: Map variable names to topic patterns
+- **Input Variables**: Map variable names to topics
 - **Expression**: JavaScript expression using the variables
 - **Trigger**: When to calculate
   - *Any input updates*: Calculate on every update
   - *Only when all inputs have values*: Wait for all values
+- **External Trigger**: When enabled, any incoming message triggers calculation using cached values
 
 **Output:**
 ```json
@@ -92,19 +92,27 @@ Subscribes to multiple topics and evaluates an expression when values update.
 }
 ```
 
-## Wildcard Patterns
+### event-json
 
-Two wildcards are supported:
+Bidirectional JSON envelope converter for MQTT messaging.
 
-| Pattern | Matches | Doesn't Match |
-|---------|---------|---------------|
-| `sensor?` | `sensor1`, `sensorA` | `sensor`, `sensor12` |
-| `sensors/*` | `sensors/temp`, `sensors/room1/temp` | `sensors` (nothing after /) |
-| `*/temp` | `room/temp`, `sensors/temp` | `temp` (nothing before /) |
-| `*` | Any topic with 1+ chars | Empty string |
+**Behavior:**
+- **Unwrap**: If payload is `{value, topic?, timestamp?}`, extracts to msg properties
+- **Wrap**: If payload is any other value, wraps as `{timestamp, topic, value}`
 
-- `?` matches exactly one character
-- `*` matches one or more characters
+**Usage:**
+```
+[MQTT in] → [event-json] → [event-in]     (unwrap JSON from broker)
+[event-topic] → [event-json] → [MQTT out] (wrap for broker)
+```
+
+### event-simulator
+
+Generates simulated data for testing. Supports sine waves, random values, and ramps.
+
+### event-chart
+
+Real-time charting node for visualizing cached event data.
 
 ## Examples
 
@@ -121,13 +129,21 @@ Two wildcards are supported:
   trigger: all
 ```
 
-### Monitor All Sensors
+### Time-based Calculations (External Trigger)
 
 ```
-[any-input: sensors/*] → [event-in] → [cache]
+[inject: every 1 min] → [event-calc (external trigger)] → [MQTT out]
+  inputs: a = sensors/power
+          b = sensors/voltage
+  expression: a * b
+```
 
-[event-topic: sensors/*] → [debug]
-  outputFormat: all
+### MQTT Round-trip with JSON Envelope
+
+```
+[MQTT in] → [event-json] → [event-in] → [cache]
+
+[event-calc] → [event-json] → [MQTT out]
 ```
 
 ### Calculate Power (Voltage × Current)
@@ -188,27 +204,6 @@ Two wildcards are supported:
 | `ifelse(a > b, 'high', 'low')` | Conditional |
 | `pctChange(a, b)` | % change from b to a |
 
-## Scalability
-
-The event-cache is optimized for high subscriber counts:
-
-| Subscription Type | Lookup Complexity | Best For |
-|-------------------|-------------------|----------|
-| Exact topic (e.g., `sensors/room1/temp`) | O(1) | High-frequency updates, many subscribers |
-| Wildcard pattern (e.g., `sensors/*`) | O(w) | Flexible matching, fewer patterns |
-
-Where `w` = number of wildcard subscriptions (typically much smaller than total subscribers).
-
-**Example performance:**
-- 1000 exact subscriptions to different topics: O(1) per update
-- 10 wildcard patterns + 1000 exact subscriptions: O(10) per update
-- Pure wildcard subscriptions: O(n) per update
-
-**Recommendations for high scale:**
-- Prefer exact topic matches when possible
-- Use wildcards sparingly for monitoring/logging
-- Check stats endpoint: `GET /event-cache/:id/stats`
-
 ## API (for custom nodes)
 
 The event-cache node exposes methods for programmatic access:
@@ -223,12 +218,8 @@ cache.setValue('topic/path', 42, { source: 'sensor' });
 const entry = cache.getValue('topic/path');
 // { value: 42, ts: 1704000000000, metadata: { source: 'sensor' } }
 
-// Get matching values
-const temps = cache.getMatching('sensors/*');
-// Map { 'sensors/room1/temp' => {...}, 'sensors/room2/temp' => {...} }
-
 // Subscribe to updates
-const subId = cache.subscribe('sensors/*', (topic, entry) => {
+const subId = cache.subscribe('sensors/room1/temp', (topic, entry) => {
     console.log(`${topic} = ${entry.value}`);
 });
 
@@ -242,6 +233,14 @@ const topics = cache.getTopics();
 cache.clear();
 ```
 
+## HTTP Admin Endpoints
+
+```
+GET  /event-cache/:id/stats   - Cache statistics
+GET  /event-cache/:id/topics  - List all topics
+POST /event-cache/:id/clear   - Clear cache
+```
+
 ## License
 
-MIT
+Personal Use License - See [LICENSE](LICENSE) file.

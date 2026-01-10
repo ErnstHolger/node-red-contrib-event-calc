@@ -1,0 +1,58 @@
+<script type="text/javascript">
+    RED.nodes.registerType('event-json', {
+        category: 'event calc',
+        color: '#758467',
+        defaults: {
+            name: { value: "" }
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: "font-awesome/fa-exchange",
+        label: function() {
+            return this.name || "event json";
+        },
+        paletteLabel: "event json"
+    });
+</script>
+
+<script type="text/html" data-template-name="event-json">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="event-json">
+    <p>Bidirectional JSON envelope converter. Automatically detects direction.</p>
+
+    <h3>Behavior</h3>
+    <dl class="message-properties">
+        <dt>Unwrap (JSON to Message)</dt>
+        <dd>If payload is <code>{value, topic?, timestamp?}</code>, extracts value to <code>msg.payload</code> and copies topic/timestamp to msg.</dd>
+        <dt>Wrap (Message to JSON)</dt>
+        <dd>If payload is any other value, wraps it as <code>{timestamp, topic, value}</code>.</dd>
+    </dl>
+
+    <h3>Examples</h3>
+    <h4>Wrap (before MQTT publish)</h4>
+    <pre>
+Input:  msg.topic = "sensor/temp", msg.payload = 25.5
+Output: msg.payload = {
+    timestamp: 1704900000000,
+    topic: "sensor/temp",
+    value: 25.5
+}</pre>
+
+    <h4>Unwrap (after MQTT subscribe)</h4>
+    <pre>
+Input:  msg.payload = '{"timestamp":1704900000000,"topic":"sensor/temp","value":25.5}'
+Output: msg.topic = "sensor/temp"
+        msg.payload = 25.5
+        msg.timestamp = 1704900000000</pre>
+
+    <h3>Status</h3>
+    <ul>
+        <li><b>Green "wrapped"</b> - Created JSON envelope</li>
+        <li><b>Blue "unwrapped"</b> - Extracted from JSON envelope</li>
+    </ul>
+</script>

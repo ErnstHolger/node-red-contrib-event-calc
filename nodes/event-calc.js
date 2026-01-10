@@ -66,6 +66,7 @@ module.exports = function(RED) {
         node.expression = config.expression || '';
         node.triggerOn = config.triggerOn || 'any';
         node.outputTopic = config.outputTopic || 'calc/result';
+        node.externalTrigger = config.externalTrigger || false;
 
         const subscriptionIds = [];
 
@@ -237,6 +238,14 @@ module.exports = function(RED) {
             if (msg.expression && typeof msg.expression === 'string') {
                 node.expression = msg.expression;
                 node.status({ fill: "blue", shape: "dot", text: "expr updated" });
+            }
+
+            // External trigger: any incoming message triggers calculation
+            if (node.externalTrigger) {
+                const triggerSource = msg.topic || '_external';
+                tryCalculate(triggerSource, latestValues);
+                done();
+                return;
             }
 
             // Force recalculation (use special topic to bypass self-output check)
