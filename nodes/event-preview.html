@@ -1,0 +1,264 @@
+<style>
+    .event-preview-white-text { fill: #ffffff !important; }
+    .red-ui-palette-node[data-palette-type="event-preview"] .red-ui-palette-label { color: #ffffff !important; }
+    .event-preview-display {
+        background: #2d2d2d;
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 10px;
+        font-family: monospace;
+        font-size: 12px;
+        color: #eee;
+        margin-top: 10px;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    .event-preview-display .field {
+        margin-bottom: 8px;
+        border-bottom: 1px solid #444;
+        padding-bottom: 8px;
+    }
+    .event-preview-display .field:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+    }
+    .event-preview-display .label {
+        color: #888;
+        font-size: 11px;
+        text-transform: uppercase;
+        margin-bottom: 2px;
+    }
+    .event-preview-display .value {
+        color: #4fc3f7;
+        word-break: break-all;
+        white-space: pre-wrap;
+        max-height: 150px;
+        overflow-y: auto;
+    }
+    .event-preview-display .value.field-topic {
+        color: #81c784;
+    }
+    .event-preview-display .value.field-timestamp {
+        color: #ffb74d;
+    }
+    .event-preview-display .value.field-payload {
+        color: #4fc3f7;
+    }
+    .event-preview-display .no-message {
+        color: #888;
+        font-style: italic;
+    }
+    .event-preview-controls {
+        margin-bottom: 10px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+    .event-preview-controls button {
+        padding: 5px 15px;
+        border-radius: 3px;
+        border: 1px solid #666;
+        cursor: pointer;
+        font-size: 12px;
+    }
+    .event-preview-controls button.play {
+        background: #4caf50;
+        color: white;
+        border-color: #388e3c;
+    }
+    .event-preview-controls button.pause {
+        background: #ff9800;
+        color: white;
+        border-color: #f57c00;
+    }
+    .event-preview-controls .status {
+        font-size: 11px;
+        color: #888;
+    }
+    .event-preview-controls .status.active {
+        color: #4caf50;
+    }
+    .event-preview-controls .status.paused {
+        color: #ff9800;
+    }
+</style>
+
+<script type="text/javascript">
+    RED.nodes.registerType('event-preview', {
+        category: 'event calc',
+        color: '#758467',
+        defaults: {
+            name: { value: "" }
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: "font-awesome/fa-eye",
+        label: function() {
+            return this.name || "event preview";
+        },
+        paletteLabel: "event preview",
+        labelStyle: function() { return (this.name ? "node_label_italic" : "") + " event-preview-white-text"; },
+        oneditprepare: function() {
+            const node = this;
+            let isActive = true;
+
+            function formatValue(key, value) {
+                if (value === null) return 'null';
+                if (value === undefined) return 'undefined';
+                if (key === 'timestamp' && typeof value === 'number') {
+                    const d = new Date(value);
+                    return d.toLocaleString() + ' (' + value + ')';
+                }
+                if (typeof value === 'object') {
+                    return JSON.stringify(value, null, 2);
+                }
+                return String(value);
+            }
+
+            function updateDisplay(data) {
+                const container = $('#event-preview-fields');
+                container.empty();
+
+                if (data && Object.keys(data).length > 0) {
+                    // Define preferred order for common fields
+                    const preferredOrder = ['topic', 'timestamp', 'payload'];
+                    const keys = Object.keys(data);
+
+                    // Sort keys: preferred first, then alphabetical
+                    keys.sort((a, b) => {
+                        const aIndex = preferredOrder.indexOf(a);
+                        const bIndex = preferredOrder.indexOf(b);
+                        if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+                        if (aIndex !== -1) return -1;
+                        if (bIndex !== -1) return 1;
+                        return a.localeCompare(b);
+                    });
+
+                    keys.forEach(key => {
+                        const fieldDiv = $('<div class="field"></div>');
+                        const labelDiv = $('<div class="label"></div>').text(key);
+                        const valueDiv = $('<div class="value"></div>')
+                            .addClass('field-' + key)
+                            .text(formatValue(key, data[key]));
+                        fieldDiv.append(labelDiv).append(valueDiv);
+                        container.append(fieldDiv);
+                    });
+
+                    $('#event-preview-no-message').hide();
+                    container.show();
+                } else {
+                    $('#event-preview-no-message').show();
+                    container.hide();
+                }
+            }
+
+            function updateButtonState(active) {
+                isActive = active;
+                if (active) {
+                    $('#event-preview-play-btn').hide();
+                    $('#event-preview-pause-btn').show();
+                    $('#event-preview-status').text('Live').removeClass('paused').addClass('active');
+                } else {
+                    $('#event-preview-play-btn').show();
+                    $('#event-preview-pause-btn').hide();
+                    $('#event-preview-status').text('Paused').removeClass('active').addClass('paused');
+                }
+            }
+
+            // Get initial state
+            $.getJSON('event-preview/' + node.id + '/latest', updateDisplay);
+            $.getJSON('event-preview/' + node.id + '/active', function(data) {
+                if (data) updateButtonState(data.active);
+            });
+
+            // Subscribe to real-time updates
+            RED.comms.subscribe("event-preview:" + node.id, function(topic, data) {
+                if (isActive) {
+                    updateDisplay(data);
+                }
+            });
+
+            // Play button
+            $('#event-preview-play-btn').on('click', function() {
+                $.post('event-preview/' + node.id + '/active/true', function(data) {
+                    updateButtonState(data.active);
+                });
+            });
+
+            // Pause button
+            $('#event-preview-pause-btn').on('click', function() {
+                $.post('event-preview/' + node.id + '/active/false', function(data) {
+                    updateButtonState(data.active);
+                });
+            });
+
+            // Cleanup on dialog close
+            $('#dialog-form').on('dialogclose', function() {
+                RED.comms.unsubscribe("event-preview:" + node.id);
+            });
+        },
+        oneditcancel: function() {
+            RED.comms.unsubscribe("event-preview:" + this.id);
+        },
+        oneditsave: function() {
+            RED.comms.unsubscribe("event-preview:" + this.id);
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="event-preview">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label><i class="fa fa-eye"></i> Live Preview</label>
+        <div class="event-preview-controls">
+            <button id="event-preview-play-btn" class="play" style="display:none;"><i class="fa fa-play"></i> Play</button>
+            <button id="event-preview-pause-btn" class="pause"><i class="fa fa-pause"></i> Pause</button>
+            <span id="event-preview-status" class="status active">Live</span>
+        </div>
+        <div class="event-preview-display">
+            <div id="event-preview-no-message" class="no-message">No message received yet</div>
+            <div id="event-preview-fields" style="display:none;"></div>
+        </div>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="event-preview">
+    <p>Displays ALL fields of the latest message with real-time updates.</p>
+
+    <h3>Features</h3>
+    <ul>
+        <li><b>Shows all msg fields</b> - Not just topic/payload, but everything</li>
+        <li><b>Real-time updates</b> - Display updates instantly when messages arrive</li>
+        <li><b>Play/Pause control</b> - Pause updates to inspect a message</li>
+        <li>Passes message through for chaining</li>
+    </ul>
+
+    <h3>Field Display</h3>
+    <ul>
+        <li><b>topic</b> - Green</li>
+        <li><b>timestamp</b> - Orange (formatted as date + Unix timestamp)</li>
+        <li><b>payload</b> - Blue</li>
+        <li>Other fields shown in alphabetical order</li>
+    </ul>
+
+    <h3>Status Display</h3>
+    <p>The node status shows: <code>topic | payload | time</code></p>
+    <ul>
+        <li><b>Green</b> - Active (receiving updates)</li>
+        <li><b>Grey</b> - Paused</li>
+    </ul>
+
+    <h3>Edit Dialog</h3>
+    <p>Open the node's edit dialog to see a live-updating formatted view:</p>
+    <ul>
+        <li><b>Play</b> - Resume receiving updates</li>
+        <li><b>Pause</b> - Freeze the display to inspect current message</li>
+    </ul>
+
+    <h3>Outputs</h3>
+    <p>The original message is passed through unchanged.</p>
+</script>
