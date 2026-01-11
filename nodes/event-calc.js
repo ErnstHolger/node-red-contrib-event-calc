@@ -96,8 +96,11 @@ module.exports = function(RED) {
 
         /**
          * Attempt to calculate and output result
+         * @param {string} triggerTopic - Topic that triggered the calculation
+         * @param {Map} latestValues - Current cached values
+         * @param {number} triggerTs - Timestamp of the triggering event
          */
-        function tryCalculate(triggerTopic, latestValues) {
+        function tryCalculate(triggerTopic, latestValues, triggerTs) {
             // Ignore updates triggered by our own output
             if (triggerTopic === node.outputTopic) {
                 return;
@@ -161,7 +164,7 @@ module.exports = function(RED) {
                         },
                         inputs: inputDetails,
                         trigger: triggerTopic,
-                        timestamp: Date.now()
+                        timestamp: triggerTs
                     };
                     node.send([null, errorMsg]);
                     node.status({ fill: "yellow", shape: "ring", text: "NaN" });
@@ -176,7 +179,7 @@ module.exports = function(RED) {
                     timestamps: timestamps,
                     expression: node.expression,
                     trigger: triggerTopic,
-                    timestamp: Date.now()
+                    timestamp: triggerTs
                 };
 
                 node.send([msg, null]);
@@ -201,7 +204,7 @@ module.exports = function(RED) {
                     },
                     inputs: inputDetails,
                     trigger: triggerTopic,
-                    timestamp: Date.now()
+                    timestamp: triggerTs
                 };
                 node.send([null, errorMsg]);
                 node.status({ fill: "red", shape: "ring", text: "eval error" });
@@ -221,7 +224,8 @@ module.exports = function(RED) {
                     value: entry.value,
                     ts: entry.ts
                 });
-                tryCalculate(topic, latestValues);
+                // Use the triggering event's timestamp
+                tryCalculate(topic, latestValues, entry.ts);
             });
             subscriptionIds.push(subId);
         }
@@ -243,7 +247,9 @@ module.exports = function(RED) {
             // External trigger: any incoming message triggers calculation
             if (node.externalTrigger) {
                 const triggerSource = msg.topic || '_external';
-                tryCalculate(triggerSource, latestValues);
+                // Use the incoming message's timestamp or current time
+                const triggerTs = msg.timestamp || Date.now();
+                tryCalculate(triggerSource, latestValues, triggerTs);
                 done();
                 return;
             }
@@ -251,7 +257,8 @@ module.exports = function(RED) {
             // Force recalculation (use special topic to bypass self-output check)
             if (msg.payload === 'recalc' || msg.topic === 'recalc') {
                 if (latestValues.size > 0) {
-                    tryCalculate('_recalc', latestValues);
+                    const triggerTs = msg.timestamp || Date.now();
+                    tryCalculate('_recalc', latestValues, triggerTs);
                 }
             }
 
