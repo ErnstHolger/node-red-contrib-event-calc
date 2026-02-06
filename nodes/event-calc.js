@@ -162,9 +162,8 @@ module.exports = function(RED) {
                             missingInputs: missingInputs,
                             expression: node.expression
                         },
-                        inputs: inputDetails,
                         trigger: triggerTopic,
-                        timestamp: triggerTs
+                        ts: triggerTs
                     };
                     node.send([null, errorMsg]);
                     node.status({ fill: "yellow", shape: "ring", text: "NaN" });
@@ -174,12 +173,9 @@ module.exports = function(RED) {
                 const msg = {
                     topic: node.outputTopic,
                     payload: result,
-                    topics: topics,
-                    inputs: inputDetails,
-                    timestamps: timestamps,
                     expression: node.expression,
                     trigger: triggerTopic,
-                    timestamp: triggerTs
+                    ts: triggerTs
                 };
 
                 node.send([msg, null]);
@@ -202,9 +198,8 @@ module.exports = function(RED) {
                         expression: node.expression,
                         context: context
                     },
-                    inputs: inputDetails,
                     trigger: triggerTopic,
-                    timestamp: triggerTs
+                    ts: triggerTs
                 };
                 node.send([null, errorMsg]);
                 node.status({ fill: "red", shape: "ring", text: "eval error" });

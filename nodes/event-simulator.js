@@ -87,7 +87,7 @@ module.exports = function(RED) {
                 const msg = {
                     topic: topic,
                     payload: value,
-                    timestamp: now,
+                    timestamp: new Date(now).toISOString(),
                     _simulator: {
                         waveform: node.waveform,
                         frequency: node.frequency,
