@@ -2,8 +2,8 @@
  * event-cache - Config node providing central cache and event bus
  *
  * Features:
- * - Map<topic, {value, ts, metadata}> for caching latest values
- * - Stored in global context for visibility in sidebar
+ * - Map<topic, {value, ts, metadata, previous}> for caching latest values
+ * - In-memory primary store with debounced sync to global context for sidebar
  * - EventEmitter for notifying subscribers on updates
  * - Exact topic matching for subscriptions
  * - LRU eviction when maxEntries exceeded
@@ -35,7 +35,10 @@ module.exports = function(RED) {
                 // Subscription storage: Map<topic, Map<subId, callback>> for O(1) exact match
                 subscriptions: new Map(),
                 users: 0,
-                subscriptionCounter: 0
+                subscriptionCounter: 0,
+                // In-memory primary cache store (Map for O(1) access)
+                cache: new Map(),
+                entryCount: 0
             });
         }
 
@@ -43,9 +46,39 @@ module.exports = function(RED) {
         instance.users++;
         instance.emitter.setMaxListeners(100); // Allow many subscribers
 
-        // Initialize cache in global context if not exists
-        if (!globalContext.get(contextKey)) {
-            globalContext.set(contextKey, {});
+        // Reference to the in-memory cache
+        const cache = instance.cache;
+
+        // Initialize from global context if cache is empty (e.g. after restart)
+        if (cache.size === 0) {
+            const stored = globalContext.get(contextKey);
+            if (stored && typeof stored === 'object') {
+                for (const [topic, entry] of Object.entries(stored)) {
+                    cache.set(topic, entry);
+                }
+            }
+        }
+        instance.entryCount = cache.size;
+
+        // Debounced sync to global context for sidebar visibility
+        let syncPending = false;
+        const SYNC_INTERVAL = 500; // ms
+
+        function syncToContext() {
+            if (!syncPending) return;
+            syncPending = false;
+            const obj = {};
+            for (const [topic, entry] of cache) {
+                obj[topic] = entry;
+            }
+            globalContext.set(contextKey, obj);
+        }
+
+        function scheduleSyncToContext() {
+            if (!syncPending) {
+                syncPending = true;
+                setTimeout(syncToContext, SYNC_INTERVAL);
+            }
         }
 
         // TTL cleanup interval
@@ -53,16 +86,16 @@ module.exports = function(RED) {
         if (node.ttl > 0) {
             ttlInterval = setInterval(() => {
                 const now = Date.now();
-                const cache = globalContext.get(contextKey) || {};
                 let changed = false;
-                for (const topic of Object.keys(cache)) {
-                    if (now - cache[topic].ts > node.ttl) {
-                        delete cache[topic];
+                for (const [topic, entry] of cache) {
+                    if (now - entry.ts > node.ttl) {
+                        cache.delete(topic);
                         changed = true;
                     }
                 }
                 if (changed) {
-                    globalContext.set(contextKey, cache);
+                    instance.entryCount = cache.size;
+                    scheduleSyncToContext();
                 }
             }, Math.min(node.ttl, 60000)); // Check at most every minute
         }
@@ -73,32 +106,38 @@ module.exports = function(RED) {
          * @param {any} value - The value to store
          * @param {object} metadata - Optional metadata
          */
-        node.setValue = function(topic, value, metadata = {}) {
+        node.setValue = function(topic, value, metadata) {
+            const existing = cache.get(topic);
+            const ts = Date.now();
+
             const entry = {
                 value: value,
-                ts: Date.now(),
-                metadata: metadata
+                ts: ts,
+                metadata: metadata || {},
+                previous: existing
+                    ? { value: existing.value, ts: existing.ts, metadata: existing.metadata }
+                    : { value: value, ts: ts, metadata: metadata || {} }
             };
 
-            const cache = globalContext.get(contextKey) || {};
-            cache[topic] = entry;
+            cache.set(topic, entry);
 
             // Enforce max entries (LRU eviction - remove oldest)
-            const keys = Object.keys(cache);
-            if (keys.length > node.maxEntries) {
-                // Find oldest entry
-                let oldestKey = keys[0];
-                let oldestTs = cache[oldestKey].ts;
-                for (const key of keys) {
-                    if (cache[key].ts < oldestTs) {
-                        oldestTs = cache[key].ts;
+            if (cache.size > node.maxEntries) {
+                let oldestKey = null;
+                let oldestTs = Infinity;
+                for (const [key, e] of cache) {
+                    if (e.ts < oldestTs) {
+                        oldestTs = e.ts;
                         oldestKey = key;
                     }
                 }
-                delete cache[oldestKey];
+                if (oldestKey !== null) {
+                    cache.delete(oldestKey);
+                }
             }
 
-            globalContext.set(contextKey, cache);
+            // Debounced sync to context (for sidebar visibility)
+            scheduleSyncToContext();
 
             // Emit topic-specific update event
             instance.emitter.emit('update', topic, entry);
@@ -107,11 +146,20 @@ module.exports = function(RED) {
         /**
          * Get a value from the cache
          * @param {string} topic - The topic key
-         * @returns {object|undefined} - The cached entry {value, ts, metadata} or undefined
+         * @returns {object|undefined} - The cached entry {value, ts, metadata, previous} or undefined
          */
         node.getValue = function(topic) {
-            const cache = globalContext.get(contextKey) || {};
-            return cache[topic];
+            return cache.get(topic);
+        };
+
+        /**
+         * Get the previous value for a topic
+         * @param {string} topic - The topic key
+         * @returns {object|undefined} - The previous entry {value, ts, metadata} or undefined
+         */
+        node.getPrevious = function(topic) {
+            const entry = cache.get(topic);
+            return entry ? entry.previous : undefined;
         };
 
         /**
@@ -152,8 +200,7 @@ module.exports = function(RED) {
          * @returns {string[]} - Array of all topic keys
          */
         node.getTopics = function() {
-            const cache = globalContext.get(contextKey) || {};
-            return Object.keys(cache);
+            return Array.from(cache.keys());
         };
 
         /**
@@ -161,14 +208,14 @@ module.exports = function(RED) {
          * @returns {number} - Cache size
          */
         node.size = function() {
-            const cache = globalContext.get(contextKey) || {};
-            return Object.keys(cache).length;
+            return cache.size;
         };
 
         /**
          * Clear all entries from cache
          */
         node.clear = function() {
+            cache.clear();
             globalContext.set(contextKey, {});
         };
 
@@ -192,6 +239,10 @@ module.exports = function(RED) {
             if (ttlInterval) {
                 clearInterval(ttlInterval);
             }
+
+            // Final sync to context before closing
+            syncPending = true;
+            syncToContext();
 
             instance.users--;
             if (instance.users <= 0) {

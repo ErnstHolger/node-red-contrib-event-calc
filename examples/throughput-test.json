@@ -1,0 +1,293 @@
+[
+    {
+        "id": "throughput-test-flow",
+        "type": "tab",
+        "label": "Throughput Test",
+        "disabled": false,
+        "info": "Measures end-to-end throughput with per-stage breakdown.\n\nEach message carries a birth timestamp through the full pipeline:\ninject → generator → event-in → cache → calc → counter\n\nReports: total time, msg/sec, and per-message avg latency."
+    },
+    {
+        "id": "cache-tp",
+        "type": "event-cache",
+        "name": "TP Cache",
+        "maxEntries": "10000",
+        "ttl": "0"
+    },
+    {
+        "id": "comment-tp-e2e",
+        "type": "comment",
+        "z": "throughput-test-flow",
+        "name": "--- End-to-End Pipeline: inject → event-in → cache → calc → measure ---",
+        "info": "",
+        "x": 300,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "inject-e2e-1k",
+        "type": "inject",
+        "z": "throughput-test-flow",
+        "name": "Burst 1,000",
+        "props": [
+            { "p": "payload" }
+        ],
+        "payload": "1000",
+        "payloadType": "num",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 130,
+        "y": 100,
+        "wires": [["e2e-generator"]]
+    },
+    {
+        "id": "inject-e2e-10k",
+        "type": "inject",
+        "z": "throughput-test-flow",
+        "name": "Burst 10,000",
+        "props": [
+            { "p": "payload" }
+        ],
+        "payload": "10000",
+        "payloadType": "num",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 130,
+        "y": 160,
+        "wires": [["e2e-generator"]]
+    },
+    {
+        "id": "inject-e2e-50k",
+        "type": "inject",
+        "z": "throughput-test-flow",
+        "name": "Burst 50,000",
+        "props": [
+            { "p": "payload" }
+        ],
+        "payload": "50000",
+        "payloadType": "num",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 130,
+        "y": 220,
+        "wires": [["e2e-generator"]]
+    },
+    {
+        "id": "e2e-generator",
+        "type": "function",
+        "z": "throughput-test-flow",
+        "name": "Generator (stamps birthTime)",
+        "func": "const count = msg.payload || 1000;\nconst batchStart = Date.now();\n\n// Reset all counters\nconst resetMsg = { payload: 'reset', _batch: { count: count, startTime: batchStart } };\nnode.send([null, null, resetMsg]);\n\n// Generate messages with birth timestamps\nfor (let i = 0; i < count; i++) {\n    node.send([{\n        topic: 'tp/sensor',\n        payload: 20 + Math.random() * 10,\n        _birthTime: Date.now(),\n        _seq: i\n    }, null, null]);\n}\n\nconst genElapsed = Date.now() - batchStart;\nnode.send([null, {\n    payload: {\n        stage: 'generator',\n        messages: count,\n        elapsed_ms: genElapsed,\n        rate_per_sec: Math.round(count / (genElapsed / 1000))\n    }\n}, null]);\n\nreturn null;",
+        "outputs": 3,
+        "x": 390,
+        "y": 160,
+        "wires": [["event-in-tp-e2e"], ["debug-tp-result"], ["e2e-simple-counter", "e2e-complex-counter", "e2e-passthru-counter"]]
+    },
+    {
+        "id": "event-in-tp-e2e",
+        "type": "event-in",
+        "z": "throughput-test-flow",
+        "name": "event-in",
+        "cache": "cache-tp",
+        "topicField": "topic",
+        "valueField": "payload",
+        "x": 610,
+        "y": 100,
+        "wires": [["e2e-passthru-counter"]]
+    },
+    {
+        "id": "calc-e2e-simple",
+        "type": "event-calc",
+        "z": "throughput-test-flow",
+        "name": "Simple: a * 2",
+        "cache": "cache-tp",
+        "inputMappings": [
+            { "name": "a", "pattern": "tp/sensor" }
+        ],
+        "expression": "a * 2",
+        "triggerOn": "any",
+        "outputTopic": "tp/result_simple",
+        "x": 610,
+        "y": 180,
+        "wires": [["e2e-simple-counter"], []]
+    },
+    {
+        "id": "calc-e2e-complex",
+        "type": "event-calc",
+        "z": "throughput-test-flow",
+        "name": "Complex: round + hasChanged + prev",
+        "cache": "cache-tp",
+        "inputMappings": [
+            { "name": "a", "pattern": "tp/sensor" }
+        ],
+        "expression": "round(a, 2) + (hasChanged('a') ? 1 : 0) + (prev('a') || 0)",
+        "triggerOn": "any",
+        "outputTopic": "tp/result_complex",
+        "x": 660,
+        "y": 250,
+        "wires": [["e2e-complex-counter"], []]
+    },
+    {
+        "id": "e2e-passthru-counter",
+        "type": "function",
+        "z": "throughput-test-flow",
+        "name": "Pass-thru Counter (event-in only)",
+        "func": "const ctx = context.get('state') || { count: 0, batch: null };\n\nif (msg.payload === 'reset') {\n    ctx.count = 0;\n    ctx.batch = msg._batch;\n    context.set('state', ctx);\n    return null;\n}\n\nctx.count++;\n\nif (ctx.batch && ctx.count >= ctx.batch.count) {\n    const elapsed = Date.now() - ctx.batch.startTime;\n    const rate = Math.round(ctx.count / (elapsed / 1000));\n    const report = {\n        payload: {\n            stage: 'event-in pass-thru (no calc)',\n            messages: ctx.count,\n            elapsed_ms: elapsed,\n            rate_per_sec: rate\n        }\n    };\n    ctx.count = 0;\n    ctx.batch = null;\n    context.set('state', ctx);\n    return report;\n}\n\ncontext.set('state', ctx);\nreturn null;",
+        "outputs": 1,
+        "x": 910,
+        "y": 100,
+        "wires": [["debug-tp-result"]]
+    },
+    {
+        "id": "e2e-simple-counter",
+        "type": "function",
+        "z": "throughput-test-flow",
+        "name": "Simple Calc Counter",
+        "func": "const ctx = context.get('state') || { count: 0, batch: null };\n\nif (msg.payload === 'reset') {\n    ctx.count = 0;\n    ctx.batch = msg._batch;\n    context.set('state', ctx);\n    return null;\n}\n\nctx.count++;\n\nif (ctx.batch && ctx.count >= ctx.batch.count) {\n    const elapsed = Date.now() - ctx.batch.startTime;\n    const rate = Math.round(ctx.count / (elapsed / 1000));\n    const report = {\n        payload: {\n            stage: 'simple calc (a * 2)',\n            messages: ctx.count,\n            elapsed_ms: elapsed,\n            rate_per_sec: rate\n        }\n    };\n    ctx.count = 0;\n    ctx.batch = null;\n    context.set('state', ctx);\n    return report;\n}\n\ncontext.set('state', ctx);\nreturn null;",
+        "outputs": 1,
+        "x": 880,
+        "y": 180,
+        "wires": [["debug-tp-result"]]
+    },
+    {
+        "id": "e2e-complex-counter",
+        "type": "function",
+        "z": "throughput-test-flow",
+        "name": "Complex Calc Counter",
+        "func": "const ctx = context.get('state') || { count: 0, batch: null };\n\nif (msg.payload === 'reset') {\n    ctx.count = 0;\n    ctx.batch = msg._batch;\n    context.set('state', ctx);\n    return null;\n}\n\nctx.count++;\n\nif (ctx.batch && ctx.count >= ctx.batch.count) {\n    const elapsed = Date.now() - ctx.batch.startTime;\n    const rate = Math.round(ctx.count / (elapsed / 1000));\n    const report = {\n        payload: {\n            stage: 'complex calc (round + hasChanged + prev)',\n            messages: ctx.count,\n            elapsed_ms: elapsed,\n            rate_per_sec: rate\n        }\n    };\n    ctx.count = 0;\n    ctx.batch = null;\n    context.set('state', ctx);\n    return report;\n}\n\ncontext.set('state', ctx);\nreturn null;",
+        "outputs": 1,
+        "x": 890,
+        "y": 250,
+        "wires": [["debug-tp-result"]]
+    },
+    {
+        "id": "debug-tp-result",
+        "type": "debug",
+        "z": "throughput-test-flow",
+        "name": "Throughput Results",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "payload.rate_per_sec",
+        "statusType": "auto",
+        "x": 1140,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "comment-tp-compare",
+        "type": "comment",
+        "z": "throughput-test-flow",
+        "name": "Results show: generator speed, event-in passthru speed, simple calc speed, complex calc speed",
+        "info": "Compare the rates to see where time is spent.\nGenerator = raw message creation\nPass-thru = event-in + cache write only\nSimple = cache write + simple expression\nComplex = cache write + expression with hasChanged/prev lookups",
+        "x": 370,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "comment-tp-sustained",
+        "type": "comment",
+        "z": "throughput-test-flow",
+        "name": "--- Sustained Rate Test: continuous stream with interval ---",
+        "info": "",
+        "x": 270,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "inject-sustained-start",
+        "type": "inject",
+        "z": "throughput-test-flow",
+        "name": "Start (10ms interval)",
+        "props": [
+            { "p": "payload" },
+            { "p": "topic", "vt": "str" }
+        ],
+        "topic": "tp/sensor_b",
+        "payload": "",
+        "payloadType": "date",
+        "repeat": "0.01",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 160,
+        "y": 460,
+        "wires": [["sustained-value"]]
+    },
+    {
+        "id": "inject-sustained-stop",
+        "type": "inject",
+        "z": "throughput-test-flow",
+        "name": "Report & Reset",
+        "props": [
+            { "p": "payload" }
+        ],
+        "payload": "report",
+        "payloadType": "str",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 140,
+        "y": 520,
+        "wires": [["sustained-counter"]]
+    },
+    {
+        "id": "sustained-value",
+        "type": "function",
+        "z": "throughput-test-flow",
+        "name": "Random Value",
+        "func": "msg.payload = Math.random() * 100;\nreturn msg;",
+        "outputs": 1,
+        "x": 370,
+        "y": 460,
+        "wires": [["event-in-tp-sustained"]]
+    },
+    {
+        "id": "event-in-tp-sustained",
+        "type": "event-in",
+        "z": "throughput-test-flow",
+        "name": "",
+        "cache": "cache-tp",
+        "topicField": "topic",
+        "valueField": "payload",
+        "x": 570,
+        "y": 460,
+        "wires": [[]]
+    },
+    {
+        "id": "calc-tp-sustained",
+        "type": "event-calc",
+        "z": "throughput-test-flow",
+        "name": "Sustained: hasChanged + prev",
+        "cache": "cache-tp",
+        "inputMappings": [
+            { "name": "b", "pattern": "tp/sensor_b" }
+        ],
+        "expression": "ifelse(hasChanged('b'), round(b - prev('b'), 2), 0)",
+        "triggerOn": "any",
+        "outputTopic": "tp/result_sustained",
+        "x": 620,
+        "y": 530,
+        "wires": [["sustained-counter"], []]
+    },
+    {
+        "id": "sustained-counter",
+        "type": "function",
+        "z": "throughput-test-flow",
+        "name": "Sustained Counter",
+        "func": "const ctx = context.get('state') || { count: 0, startTime: Date.now() };\n\nif (msg.payload === 'report') {\n    const elapsed = Date.now() - ctx.startTime;\n    const rate = elapsed > 0 ? Math.round(ctx.count / (elapsed / 1000)) : 0;\n    const report = {\n        payload: {\n            stage: 'sustained (hasChanged + prev + ifelse)',\n            messages: ctx.count,\n            elapsed_ms: elapsed,\n            elapsed_sec: Math.round(elapsed / 100) / 10,\n            rate_per_sec: rate\n        }\n    };\n    context.set('state', { count: 0, startTime: Date.now() });\n    return report;\n}\n\nctx.count++;\ncontext.set('state', ctx);\nreturn null;",
+        "outputs": 1,
+        "x": 880,
+        "y": 520,
+        "wires": [["debug-tp-result"]]
+    }
+]

@@ -1,6 +1,15 @@
 # Dependencies
 node_modules/
+
+# Claude
 .claude/
+
+# Package tarballs
+*.tgz
+
+# Windows artifacts
+nul
+
 # Logs
 logs/
 *.log
@@ -41,6 +50,3 @@ build/
 # Test output
 test-results/
 playwright-report/
-
-# Claude
-.claude/

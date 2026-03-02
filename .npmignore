@@ -1,0 +1,8 @@
+*.tgz
+nul
+tests/
+test-results/
+playwright-report/
+playwright.config.js
+.claudeignore
+.claude/

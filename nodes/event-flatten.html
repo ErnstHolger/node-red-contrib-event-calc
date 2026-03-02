@@ -1,0 +1,53 @@
+<style>
+    .event-calc-white-text { fill: #ffffff !important; }
+    .red-ui-palette-node[data-palette-type="event-flatten"] .red-ui-palette-label { color: #ffffff !important; }
+</style>
+
+<script type="text/javascript">
+    RED.nodes.registerType('event-flatten', {
+        category: 'event calc',
+        color: '#758467',
+        defaults: {
+            name: { value: "" }
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: "font-awesome/fa-expand",
+        label: function() {
+            return this.name || "event flatten";
+        },
+        paletteLabel: "event flatten",
+        labelStyle: function() { return (this.name ? "node_label_italic" : "") + " event-calc-white-text"; }
+    });
+</script>
+
+<script type="text/html" data-template-name="event-flatten">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="event-flatten">
+    <p>Flattens <code>msg.payload</code> into the top-level message object.</p>
+
+    <h3>Behavior</h3>
+    <p>Takes all properties from <code>msg.payload</code> (must be a plain object) and assigns them
+    directly onto <code>msg</code>, then removes <code>msg.payload</code>.</p>
+
+    <h3>Example</h3>
+    <pre>
+Input:
+  msg.payload = { topic: "sensor/temp", value: 25.5, timestamp: "2026-02-06T..." }
+
+Output:
+  msg.topic     = "sensor/temp"
+  msg.value     = 25.5
+  msg.timestamp = "2026-02-06T..."</pre>
+
+    <h3>Status</h3>
+    <ul>
+        <li><b>Green</b> - Successfully flattened, shows number of fields merged</li>
+        <li><b>Yellow</b> - Payload was not a plain object, message passed through unchanged</li>
+    </ul>
+</script>

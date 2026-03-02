@@ -5,7 +5,7 @@
  * - Maps variables to exact topics
  * - Evaluates JavaScript expressions when inputs update
  * - Trigger modes: 'any' (any input updates) or 'all' (all inputs have values)
- * - Safe expression evaluation using Function constructor
+ * - Cached compiled functions for high throughput
  * - Dynamic expression update via input message
  * - Built-in helper functions for common operations
  */
@@ -16,17 +16,17 @@ module.exports = function(RED) {
         // Math shortcuts
         min: (...args) => Math.min(...args.flat()),
         max: (...args) => Math.max(...args.flat()),
-        abs: (x) => Math.abs(x),
-        sqrt: (x) => Math.sqrt(x),
-        pow: (base, exp) => Math.pow(base, exp),
-        log: (x) => Math.log(x),
-        log10: (x) => Math.log10(x),
-        exp: (x) => Math.exp(x),
-        floor: (x) => Math.floor(x),
-        ceil: (x) => Math.ceil(x),
-        sin: (x) => Math.sin(x),
-        cos: (x) => Math.cos(x),
-        tan: (x) => Math.tan(x),
+        abs: Math.abs,
+        sqrt: Math.sqrt,
+        pow: Math.pow,
+        log: Math.log,
+        log10: Math.log10,
+        exp: Math.exp,
+        floor: Math.floor,
+        ceil: Math.ceil,
+        sin: Math.sin,
+        cos: Math.cos,
+        tan: Math.tan,
         PI: Math.PI,
         E: Math.E,
 
@@ -55,8 +55,30 @@ module.exports = function(RED) {
 
         // Delta/change detection (returns difference)
         delta: (current, previous) => current - previous,
-        pctChange: (current, previous) => previous !== 0 ? ((current - previous) / previous) * 100 : 0
+        pctChange: (current, previous) => previous !== 0 ? ((current - previous) / previous) * 100 : 0,
+
+        // Date/time helpers (all based on local time)
+        hour: () => new Date().getHours(),
+        minute: () => new Date().getMinutes(),
+        second: () => new Date().getSeconds(),
+        day: () => new Date().getDay(),          // 0=Sun, 1=Mon, ..., 6=Sat
+        dayOfMonth: () => new Date().getDate(),
+        month: () => new Date().getMonth() + 1,  // 1-12
+        year: () => new Date().getFullYear(),
+        isWeekday: () => { const d = new Date().getDay(); return d >= 1 && d <= 5; },
+        isWeekend: () => { const d = new Date().getDay(); return d === 0 || d === 6; },
+        hoursBetween: (startHour, endHour) => {
+            const h = new Date().getHours();
+            return startHour <= endHour
+                ? h >= startHour && h < endHour
+                : h >= startHour || h < endHour; // wraps midnight
+        }
     };
+
+    // Pre-compute helper keys (shared across all nodes, never changes)
+    const helperKeys = Object.keys(helpers);
+    const helperValues = Object.values(helpers);
+
     function EventCalcNode(config) {
         RED.nodes.createNode(this, config);
         const node = this;
@@ -94,21 +116,89 @@ module.exports = function(RED) {
             }
         }
 
+        // Subscribe to inputs
+        const latestValues = new Map();
+
+        // Dynamic helpers that need access to cache (created per-node)
+        const cacheHelpers = {
+            now: Date.now,
+            hasChanged: (varName) => {
+                const data = latestValues.get(varName);
+                if (!data || !data.topic) return false;
+                const entry = node.cacheConfig.getValue(data.topic);
+                if (!entry || !entry.previous) return false;
+                return entry.value !== entry.previous.value;
+            },
+            timeSinceLastChange: (varName) => {
+                const data = latestValues.get(varName);
+                if (!data || !data.topic) return 0;
+                const entry = node.cacheConfig.getValue(data.topic);
+                if (!entry) return 0;
+                if (!entry.previous || entry.value === entry.previous.value) {
+                    return Date.now() - (entry.previous ? entry.previous.ts : entry.ts);
+                }
+                return Date.now() - entry.ts;
+            },
+            prev: (varName) => {
+                const data = latestValues.get(varName);
+                if (!data || !data.topic) return undefined;
+                const prev = node.cacheConfig.getPrevious(data.topic);
+                return prev ? prev.value : undefined;
+            }
+        };
+
+        // Pre-compute cache helper keys
+        const cacheHelperKeys = Object.keys(cacheHelpers);
+        const cacheHelperValues = Object.values(cacheHelpers);
+
+        // Pre-compute input variable names (order is stable)
+        const inputNames = node.inputMappings.map(m => m.name);
+
+        // --- Compiled function cache ---
+        // All param names = helpers + cacheHelpers + input variable names
+        // helpers and cacheHelpers are fixed; input names are fixed per node
+        const allParamNames = [...helperKeys, ...cacheHelperKeys, ...inputNames];
+        // Pre-allocate the values array (reused on every call)
+        const allParamValues = new Array(allParamNames.length);
+        // Fill the fixed portion (helpers + cacheHelpers)
+        const fixedCount = helperKeys.length + cacheHelperKeys.length;
+        for (let i = 0; i < helperKeys.length; i++) {
+            allParamValues[i] = helperValues[i];
+        }
+        for (let i = 0; i < cacheHelperKeys.length; i++) {
+            allParamValues[helperKeys.length + i] = cacheHelperValues[i];
+        }
+
+        // Compiled function + expression it was compiled from
+        let compiledFn = null;
+        let compiledExpression = '';
+
+        function compileExpression(expr) {
+            if (expr === compiledExpression && compiledFn) return compiledFn;
+            compiledFn = new Function(...allParamNames, `return ${expr};`);
+            compiledExpression = expr;
+            return compiledFn;
+        }
+
+        // Compile initial expression
+        try {
+            compileExpression(node.expression);
+        } catch (err) {
+            node.status({ fill: "red", shape: "ring", text: "compile error" });
+        }
+
         /**
          * Attempt to calculate and output result
-         * @param {string} triggerTopic - Topic that triggered the calculation
-         * @param {Map} latestValues - Current cached values
-         * @param {number} triggerTs - Timestamp of the triggering event
          */
-        function tryCalculate(triggerTopic, latestValues, triggerTs) {
+        function tryCalculate(triggerTopic, triggerTs) {
             // Ignore updates triggered by our own output
             if (triggerTopic === node.outputTopic) {
                 return;
             }
 
             if (node.triggerOn === 'all') {
-                for (const input of node.inputMappings) {
-                    if (!latestValues.has(input.name)) {
+                for (let i = 0; i < inputNames.length; i++) {
+                    if (!latestValues.has(inputNames[i])) {
                         return;
                     }
                 }
@@ -118,72 +208,45 @@ module.exports = function(RED) {
                 return;
             }
 
-            const context = {};
-            const inputDetails = {};
-            const missingInputs = [];
-
-            for (const input of node.inputMappings) {
-                const data = latestValues.get(input.name);
+            // Fill input variable values into the pre-allocated array
+            let hasAllInputs = true;
+            for (let i = 0; i < inputNames.length; i++) {
+                const data = latestValues.get(inputNames[i]);
                 if (data && data.value !== undefined && data.value !== null) {
-                    context[input.name] = data.value;
-                    inputDetails[input.name] = {
-                        topic: data.topic,
-                        value: data.value,
-                        ts: data.ts
-                    };
+                    allParamValues[fixedCount + i] = data.value;
                 } else {
-                    context[input.name] = undefined;
-                    missingInputs.push(input.name);
+                    allParamValues[fixedCount + i] = undefined;
+                    hasAllInputs = false;
                 }
             }
 
-            // Build topics mapping: variable name -> topic
-            const topics = { _output: node.outputTopic };
-            const timestamps = {};
-            for (const [name, details] of Object.entries(inputDetails)) {
-                topics[name] = details.topic;
-                timestamps[name] = details.ts;
-            }
-
             try {
-                const allParams = { ...helpers, ...context };
-                const paramNames = Object.keys(allParams);
-                const paramValues = Object.values(allParams);
-
-                const fn = new Function(...paramNames, `return ${node.expression};`);
-                const result = fn(...paramValues);
+                const fn = compileExpression(node.expression);
+                const result = fn(...allParamValues);
 
                 // Check for NaN or invalid result
                 if (typeof result === 'number' && isNaN(result)) {
-                    const errorMsg = {
+                    node.send([null, {
                         topic: node.outputTopic,
-                        payload: {
-                            error: 'Expression resulted in NaN',
-                            missingInputs: missingInputs,
-                            expression: node.expression
-                        },
+                        payload: { error: 'Expression resulted in NaN', expression: node.expression },
                         trigger: triggerTopic,
                         ts: triggerTs
-                    };
-                    node.send([null, errorMsg]);
+                    }]);
                     node.status({ fill: "yellow", shape: "ring", text: "NaN" });
                     return;
                 }
 
-                const msg = {
+                node.send([{
                     topic: node.outputTopic,
                     payload: result,
                     expression: node.expression,
                     trigger: triggerTopic,
                     ts: triggerTs
-                };
-
-                node.send([msg, null]);
+                }, null]);
 
                 node.cacheConfig.setValue(node.outputTopic, result, {
                     source: 'event-calc',
-                    expression: node.expression,
-                    inputs: Object.keys(inputDetails)
+                    expression: node.expression
                 });
 
                 const resultStr = String(result);
@@ -191,23 +254,15 @@ module.exports = function(RED) {
                 node.status({ fill: "green", shape: "dot", text: `= ${displayResult}` });
 
             } catch (err) {
-                const errorMsg = {
+                node.send([null, {
                     topic: node.outputTopic,
-                    payload: {
-                        error: err.message,
-                        expression: node.expression,
-                        context: context
-                    },
+                    payload: { error: err.message, expression: node.expression },
                     trigger: triggerTopic,
                     ts: triggerTs
-                };
-                node.send([null, errorMsg]);
+                }]);
                 node.status({ fill: "red", shape: "ring", text: "eval error" });
             }
         }
-
-        // Subscribe to inputs
-        const latestValues = new Map();
 
         for (const input of node.inputMappings) {
             const topicName = input.topic || input.pattern;
@@ -219,8 +274,7 @@ module.exports = function(RED) {
                     value: entry.value,
                     ts: entry.ts
                 });
-                // Use the triggering event's timestamp
-                tryCalculate(topic, latestValues, entry.ts);
+                tryCalculate(topic, entry.ts);
             });
             subscriptionIds.push(subId);
         }
@@ -236,15 +290,16 @@ module.exports = function(RED) {
             // Allow expression update via message
             if (msg.expression && typeof msg.expression === 'string') {
                 node.expression = msg.expression;
+                compiledFn = null; // Force recompile
+                compiledExpression = '';
                 node.status({ fill: "blue", shape: "dot", text: "expr updated" });
             }
 
             // External trigger: any incoming message triggers calculation
             if (node.externalTrigger) {
                 const triggerSource = msg.topic || '_external';
-                // Use the incoming message's timestamp or current time
                 const triggerTs = msg.timestamp || Date.now();
-                tryCalculate(triggerSource, latestValues, triggerTs);
+                tryCalculate(triggerSource, triggerTs);
                 done();
                 return;
             }
@@ -253,7 +308,7 @@ module.exports = function(RED) {
             if (msg.payload === 'recalc' || msg.topic === 'recalc') {
                 if (latestValues.size > 0) {
                     const triggerTs = msg.timestamp || Date.now();
-                    tryCalculate('_recalc', latestValues, triggerTs);
+                    tryCalculate('_recalc', triggerTs);
                 }
             }
 

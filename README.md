@@ -11,7 +11,7 @@ This package provides a local in-memory event hub with topic-based publish/subsc
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  event-cache (config node)                                   │
-│  • Stores: Map<topic, {value, ts, metadata}>                │
+│  • Stores: Map<topic, {value, ts, metadata, previous}>      │
 │  • Event emitter for topic updates                           │
 │  • LRU eviction, optional TTL                                │
 └──────────────────────────────────────────────────────────────┘
@@ -190,6 +190,30 @@ Real-time charting node for visualizing cached event data.
 | `delta(current, previous)` | Difference |
 | `pctChange(current, previous)` | Percentage change |
 
+### Change Detection
+| Function | Description |
+|----------|-------------|
+| `now()` | Current timestamp in milliseconds |
+| `prev('varName')` | Previous value of a variable |
+| `hasChanged('varName')` | `true` if value differs from previous (false on first message) |
+| `timeSinceLastChange('varName')` | Milliseconds since the value last changed |
+
+The cache automatically tracks the previous value for every topic. On the first message, `prev()` returns the same value as the current (so `hasChanged()` returns `false` and delta is `0`).
+
+### Date/Time
+| Function | Description |
+|----------|-------------|
+| `hour()` | Current hour (0-23) |
+| `minute()` | Current minute (0-59) |
+| `second()` | Current second (0-59) |
+| `day()` | Day of week (0=Sun, 1=Mon, ..., 6=Sat) |
+| `dayOfMonth()` | Day of month (1-31) |
+| `month()` | Month (1-12) |
+| `year()` | Full year (e.g. 2026) |
+| `isWeekday()` | `true` if Monday-Friday |
+| `isWeekend()` | `true` if Saturday or Sunday |
+| `hoursBetween(start, end)` | `true` if current hour is within range (wraps midnight) |
+
 ## Expression Examples
 
 | Expression | Description |
@@ -203,6 +227,12 @@ Real-time charting node for visualizing cached event data.
 | `map(a, 0, 1023, 0, 100)` | Scale ADC to % |
 | `ifelse(a > b, 'high', 'low')` | Conditional |
 | `pctChange(a, b)` | % change from b to a |
+| `hasChanged('temp')` | Did temperature just change? |
+| `temp - prev('temp')` | Delta from previous value |
+| `round(timeSinceLastChange('temp') / 1000, 1)` | Seconds since last change |
+| `isWeekday() && hoursBetween(8, 18)` | During business hours? |
+| `hoursBetween(22, 6)` | Night shift (wraps midnight) |
+| `ifelse(isWeekend(), temp * 0.8, temp)` | Reduce setpoint on weekends |
 
 ## API (for custom nodes)
 
@@ -216,7 +246,11 @@ cache.setValue('topic/path', 42, { source: 'sensor' });
 
 // Get a value
 const entry = cache.getValue('topic/path');
-// { value: 42, ts: 1704000000000, metadata: { source: 'sensor' } }
+// { value: 42, ts: 1704000000000, metadata: { source: 'sensor' }, previous: { value: 40, ts: ..., metadata: ... } }
+
+// Get previous value
+const prev = cache.getPrevious('topic/path');
+// { value: 40, ts: 1703999990000, metadata: { source: 'sensor' } }
 
 // Subscribe to updates
 const subId = cache.subscribe('sensors/room1/temp', (topic, entry) => {
