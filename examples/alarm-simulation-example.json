@@ -1,0 +1,288 @@
+[
+    {
+        "id": "alarm-sim-flow",
+        "type": "tab",
+        "label": "Alarm Lifecycle Simulation",
+        "disabled": false,
+        "info": "Self-running alarm lifecycle simulation.\n\nEvery few seconds a random alarm is raised. After a random delay it gets\nacknowledged, and after another random delay the condition clears.\nThe event-alarm nodes track the full ISA-18.2 lifecycle.\n\nBoth lifecycle paths are exercised:\n  Path A: Raised > Acked > Cleared (Resolved)\n  Path B: Raised > Cleared > Acked (Resolved)"
+    },
+    {
+        "id": "sim-cache",
+        "type": "event-cache",
+        "name": "Sim Cache",
+        "maxEntries": "10000",
+        "ttl": "0"
+    },
+    {
+        "id": "comment-sim-title",
+        "type": "comment",
+        "z": "alarm-sim-flow",
+        "name": "Alarm Lifecycle Simulation (self-running)",
+        "info": "Raises random alarms every N seconds, then auto-acks and auto-clears after random delays.\nWatch the debug sidebar to see the full lifecycle play out.",
+        "x": 230,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "sim-trigger",
+        "type": "inject",
+        "z": "alarm-sim-flow",
+        "name": "Every 5s: raise random alarm",
+        "props": [
+            { "p": "payload", "v": "", "vt": "date" }
+        ],
+        "repeat": "5",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "2",
+        "x": 200,
+        "y": 120,
+        "wires": [["sim-raise-alarm"]]
+    },
+    {
+        "id": "sim-raise-alarm",
+        "type": "function",
+        "z": "alarm-sim-flow",
+        "name": "Raise Random Alarm",
+        "func": "const alarms = [\n    { topic: 'sim/plant/PumpTrip_P1A/active', name: 'PumpTrip_P1A' },\n    { topic: 'sim/plant/BreakerFault_MCC3/active', name: 'BreakerFault_MCC3' },\n    { topic: 'sim/plant/HighLevel_Thickener/active', name: 'HighLevel_Thickener' },\n    { topic: 'sim/plant/VibrationHigh_Screen2/active', name: 'VibrationHigh_Screen2' },\n    { topic: 'sim/plant/EStop_Conveyor7/active', name: 'EStop_Conveyor7' },\n    { topic: 'sim/plant/MagnetiteLevel_Low/active', name: 'MagnetiteLevel_Low' }\n];\n\n// Pick a random alarm\nconst alarm = alarms[Math.floor(Math.random() * alarms.length)];\n\n// Activate it\nconst activateMsg = {\n    topic: alarm.topic,\n    payload: true\n};\n\n// Schedule ack after 3-10s random delay\nconst ackDelay = 3000 + Math.floor(Math.random() * 7000);\n// Schedule clear after 5-15s random delay\nconst clearDelay = 5000 + Math.floor(Math.random() * 10000);\n\n// Randomly choose lifecycle path:\n//   Path A (60%): ack first, then clear\n//   Path B (40%): clear first, then ack\nconst ackFirst = Math.random() < 0.6;\n\nconst ackMsg = {\n    payload: { action: 'ack', source: alarm.topic },\n    _alarm: alarm.name,\n    _delay: ackFirst ? ackDelay : clearDelay + ackDelay\n};\n\nconst clearMsg = {\n    topic: alarm.topic,\n    payload: false,\n    _alarm: alarm.name,\n    _delay: ackFirst ? clearDelay + ackDelay : clearDelay\n};\n\n// Store scheduled actions in context for the delay nodes\nnode.status({ text: `${alarm.name} (${ackFirst ? 'ack-first' : 'clear-first'})` });\n\n// Output 1: activate now\n// Output 2: ack (with delay metadata)\n// Output 3: clear (with delay metadata)\nreturn [activateMsg, ackMsg, clearMsg];",
+        "outputs": 3,
+        "outputLabels": ["activate", "ack (delayed)", "clear (delayed)"],
+        "x": 480,
+        "y": 120,
+        "wires": [["sim-event-in"], ["sim-delay-ack"], ["sim-delay-clear"]]
+    },
+    {
+        "id": "sim-delay-ack",
+        "type": "function",
+        "z": "alarm-sim-flow",
+        "name": "Random Delay (ack)",
+        "func": "const delay = msg._delay || 5000;\nconst alarmName = msg._alarm || 'unknown';\n\nreturn new Promise(resolve => {\n    const timerId = setTimeout(() => {\n        node.status({ text: `ack ${alarmName} after ${(delay/1000).toFixed(1)}s` });\n        delete msg._delay;\n        delete msg._alarm;\n        resolve(msg);\n    }, delay);\n    \n    // Clean up on node close\n    node.on('close', () => clearTimeout(timerId));\n});",
+        "outputs": 1,
+        "x": 480,
+        "y": 200,
+        "wires": [["sim-ack-router"]]
+    },
+    {
+        "id": "sim-delay-clear",
+        "type": "function",
+        "z": "alarm-sim-flow",
+        "name": "Random Delay (clear)",
+        "func": "const delay = msg._delay || 8000;\nconst alarmName = msg._alarm || 'unknown';\n\nreturn new Promise(resolve => {\n    const timerId = setTimeout(() => {\n        node.status({ text: `clear ${alarmName} after ${(delay/1000).toFixed(1)}s` });\n        delete msg._delay;\n        delete msg._alarm;\n        resolve(msg);\n    }, delay);\n    \n    // Clean up on node close\n    node.on('close', () => clearTimeout(timerId));\n});",
+        "outputs": 1,
+        "x": 490,
+        "y": 280,
+        "wires": [["sim-event-in"]]
+    },
+    {
+        "id": "sim-event-in",
+        "type": "event-in",
+        "z": "alarm-sim-flow",
+        "name": "Push to Cache",
+        "cache": "sim-cache",
+        "topicSource": "msg",
+        "topicPattern": "",
+        "x": 710,
+        "y": 120,
+        "wires": [[]]
+    },
+    {
+        "id": "sim-ack-router",
+        "type": "function",
+        "z": "alarm-sim-flow",
+        "name": "Route ACK to alarm node",
+        "func": "// Route the ack to the correct alarm node based on source topic\nconst source = msg.payload.source;\nconst routes = {\n    'sim/plant/PumpTrip_P1A/active': 0,\n    'sim/plant/BreakerFault_MCC3/active': 1,\n    'sim/plant/HighLevel_Thickener/active': 2,\n    'sim/plant/VibrationHigh_Screen2/active': 3,\n    'sim/plant/EStop_Conveyor7/active': 4,\n    'sim/plant/MagnetiteLevel_Low/active': 5\n};\n\nconst outputs = [null, null, null, null, null, null];\nconst idx = routes[source];\nif (idx !== undefined) {\n    outputs[idx] = msg;\n}\nreturn outputs;",
+        "outputs": 6,
+        "outputLabels": ["Pump", "Breaker", "Thickener", "Vibration", "EStop", "Magnetite"],
+        "x": 720,
+        "y": 200,
+        "wires": [["sim-alarm-pump"], ["sim-alarm-breaker"], ["sim-alarm-thickener"], ["sim-alarm-vibration"], ["sim-alarm-estop"], ["sim-alarm-magnetite"]]
+    },
+    {
+        "id": "comment-alarm-nodes",
+        "type": "comment",
+        "z": "alarm-sim-flow",
+        "name": "--- Event Alarm Nodes ---",
+        "info": "",
+        "x": 940,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "sim-alarm-pump",
+        "type": "event-alarm",
+        "z": "alarm-sim-flow",
+        "name": "Pump P1A Trip",
+        "cache": "sim-cache",
+        "conditionId": "PumpTrip_P1A",
+        "conditionName": "Heavy Media Pump P1A Trip",
+        "inputMappings": [
+            { "name": "active", "topic": "sim/plant/PumpTrip_P1A/active" }
+        ],
+        "condition": "active == true",
+        "severity": "800",
+        "outputTopic": "alarm/PumpTrip_P1A",
+        "x": 960,
+        "y": 100,
+        "wires": [["debug-sim-raised"], ["debug-sim-acked"], ["debug-sim-cleared"], ["debug-sim-resolved"]]
+    },
+    {
+        "id": "sim-alarm-breaker",
+        "type": "event-alarm",
+        "z": "alarm-sim-flow",
+        "name": "Breaker MCC3 Fault",
+        "cache": "sim-cache",
+        "conditionId": "BreakerFault_MCC3",
+        "conditionName": "MCC3 Main Breaker Fault",
+        "inputMappings": [
+            { "name": "active", "topic": "sim/plant/BreakerFault_MCC3/active" }
+        ],
+        "condition": "active == true",
+        "severity": "900",
+        "outputTopic": "alarm/BreakerFault_MCC3",
+        "x": 970,
+        "y": 180,
+        "wires": [["debug-sim-raised"], ["debug-sim-acked"], ["debug-sim-cleared"], ["debug-sim-resolved"]]
+    },
+    {
+        "id": "sim-alarm-thickener",
+        "type": "event-alarm",
+        "z": "alarm-sim-flow",
+        "name": "Thickener Level High",
+        "cache": "sim-cache",
+        "conditionId": "HighLevel_Thickener",
+        "conditionName": "Thickener Overflow Level High",
+        "inputMappings": [
+            { "name": "active", "topic": "sim/plant/HighLevel_Thickener/active" }
+        ],
+        "condition": "active == true",
+        "severity": "600",
+        "outputTopic": "alarm/HighLevel_Thickener",
+        "x": 970,
+        "y": 260,
+        "wires": [["debug-sim-raised"], ["debug-sim-acked"], ["debug-sim-cleared"], ["debug-sim-resolved"]]
+    },
+    {
+        "id": "sim-alarm-vibration",
+        "type": "event-alarm",
+        "z": "alarm-sim-flow",
+        "name": "Screen 2 Vibration",
+        "cache": "sim-cache",
+        "conditionId": "VibrationHigh_Screen2",
+        "conditionName": "Screen 2 Vibration Alarm High",
+        "inputMappings": [
+            { "name": "active", "topic": "sim/plant/VibrationHigh_Screen2/active" }
+        ],
+        "condition": "active == true",
+        "severity": "500",
+        "outputTopic": "alarm/VibrationHigh_Screen2",
+        "x": 970,
+        "y": 340,
+        "wires": [["debug-sim-raised"], ["debug-sim-acked"], ["debug-sim-cleared"], ["debug-sim-resolved"]]
+    },
+    {
+        "id": "sim-alarm-estop",
+        "type": "event-alarm",
+        "z": "alarm-sim-flow",
+        "name": "Conveyor 7 EStop",
+        "cache": "sim-cache",
+        "conditionId": "EStop_Conveyor7",
+        "conditionName": "Conveyor 7 Emergency Stop",
+        "inputMappings": [
+            { "name": "active", "topic": "sim/plant/EStop_Conveyor7/active" }
+        ],
+        "condition": "active == true",
+        "severity": "1000",
+        "outputTopic": "alarm/EStop_Conveyor7",
+        "x": 970,
+        "y": 420,
+        "wires": [["debug-sim-raised"], ["debug-sim-acked"], ["debug-sim-cleared"], ["debug-sim-resolved"]]
+    },
+    {
+        "id": "sim-alarm-magnetite",
+        "type": "event-alarm",
+        "z": "alarm-sim-flow",
+        "name": "Magnetite Level Low",
+        "cache": "sim-cache",
+        "conditionId": "MagnetiteLevel_Low",
+        "conditionName": "Magnetite Storage Tank Level Low",
+        "inputMappings": [
+            { "name": "active", "topic": "sim/plant/MagnetiteLevel_Low/active" }
+        ],
+        "condition": "active == true",
+        "severity": "400",
+        "outputTopic": "alarm/MagnetiteLevel_Low",
+        "x": 970,
+        "y": 500,
+        "wires": [["debug-sim-raised"], ["debug-sim-acked"], ["debug-sim-cleared"], ["debug-sim-resolved"]]
+    },
+    {
+        "id": "comment-debug-outputs",
+        "type": "comment",
+        "z": "alarm-sim-flow",
+        "name": "--- Lifecycle Debug Outputs ---",
+        "info": "",
+        "x": 1270,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "debug-sim-raised",
+        "type": "debug",
+        "z": "alarm-sim-flow",
+        "name": "RAISED",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "statusVal": "payload.condition_name",
+        "statusType": "msg",
+        "x": 1240,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "debug-sim-acked",
+        "type": "debug",
+        "z": "alarm-sim-flow",
+        "name": "ACKNOWLEDGED",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "statusVal": "payload.condition_name",
+        "statusType": "msg",
+        "x": 1260,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "debug-sim-cleared",
+        "type": "debug",
+        "z": "alarm-sim-flow",
+        "name": "CLEARED",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "statusVal": "payload.condition_name",
+        "statusType": "msg",
+        "x": 1250,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "debug-sim-resolved",
+        "type": "debug",
+        "z": "alarm-sim-flow",
+        "name": "RESOLVED",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "statusVal": "payload.condition_name",
+        "statusType": "msg",
+        "x": 1250,
+        "y": 340,
+        "wires": []
+    }
+]

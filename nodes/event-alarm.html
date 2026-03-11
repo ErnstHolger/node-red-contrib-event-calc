@@ -1,0 +1,252 @@
+<style>
+    .event-alarm-white-text { fill: #ffffff !important; }
+    .red-ui-palette-node[data-palette-type="event-alarm"] .red-ui-palette-label { color: #ffffff !important; }
+</style>
+
+<script type="text/javascript">
+    RED.nodes.registerType('event-alarm', {
+        category: 'event calc',
+        color: '#C44040',
+        defaults: {
+            name: { value: "" },
+            cache: { value: "", type: "event-cache", required: true },
+            conditionId: { value: "" },
+            conditionName: { value: "" },
+            inputMappings: { value: [] },
+            condition: { value: "" },
+            severity: { value: 500, validate: function(v) { var n = parseInt(v); return !isNaN(n) && n >= 0 && n <= 1000; } },
+            outputTopic: { value: "alarm/event" }
+        },
+        inputs: 1,
+        outputs: 4,
+        outputLabels: ["raised", "acknowledged", "cleared", "resolved"],
+        icon: "font-awesome/fa-bell",
+        label: function() {
+            return this.name || this.conditionName || "event alarm";
+        },
+        paletteLabel: "event alarm",
+        labelStyle: function() { return (this.name ? "node_label_italic" : "") + " event-alarm-white-text"; },
+        oneditprepare: function() {
+            var node = this;
+            var cachedTopics = [];
+
+            function fetchTopics() {
+                var cacheId = $("#node-input-cache").val();
+                if (cacheId) {
+                    $.getJSON("event-cache/" + cacheId + "/topics", function(topics) {
+                        cachedTopics = topics || [];
+                        $(".input-topic").each(function() {
+                            $(this).autocomplete("option", "source", cachedTopics);
+                        });
+                    });
+                }
+            }
+
+            $("#node-input-cache").on("change", fetchTopics);
+            setTimeout(fetchTopics, 100);
+
+            // Input mappings editable list
+            var inputList = $("#node-input-inputMappings-list").css({
+                'min-height': '150px',
+                'min-width': '450px'
+            }).editableList({
+                addItem: function(container, i, data) {
+                    var row = $('<div/>', { style: "display:flex; align-items:center; gap:5px;" }).appendTo(container);
+
+                    $('<input/>', {
+                        type: "text",
+                        placeholder: "var (e.g. 'temp')",
+                        class: "input-name"
+                    })
+                    .css({ width: "25%", flex: "0 0 auto" })
+                    .val(data.name || "")
+                    .appendTo(row);
+
+                    $('<span/>', { style: "flex: 0 0 auto;" }).text(" = ").appendTo(row);
+
+                    var topicInput = $('<input/>', {
+                        type: "text",
+                        placeholder: "topic (type to search cached topics)",
+                        class: "input-topic"
+                    })
+                    .css({ flex: "1 1 auto" })
+                    .val(data.topic || data.pattern || "")
+                    .appendTo(row);
+
+                    topicInput.autocomplete({
+                        source: cachedTopics,
+                        minLength: 0,
+                        delay: 0
+                    }).on("focus", function() {
+                        if (!$(this).val()) {
+                            $(this).autocomplete("search", "");
+                        }
+                    });
+                },
+                removable: true,
+                sortable: true,
+                addButton: true
+            });
+
+            if (node.inputMappings && node.inputMappings.length > 0) {
+                node.inputMappings.forEach(function(input) {
+                    inputList.editableList('addItem', input);
+                });
+            } else {
+                inputList.editableList('addItem', { name: 'val', pattern: '' });
+            }
+        },
+        oneditsave: function() {
+            var node = this;
+            node.inputMappings = [];
+
+            $("#node-input-inputMappings-list").editableList('items').each(function() {
+                var name = $(this).find(".input-name").val().trim();
+                var topic = $(this).find(".input-topic").val().trim();
+                if (name && topic) {
+                    node.inputMappings.push({ name: name, topic: topic });
+                }
+            });
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="event-alarm">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-cache"><i class="fa fa-database"></i> Cache</label>
+        <input type="text" id="node-input-cache">
+    </div>
+    <div class="form-row">
+        <label for="node-input-conditionId"><i class="fa fa-key"></i> Condition ID</label>
+        <input type="text" id="node-input-conditionId" placeholder="Unique alarm identifier (defaults to node ID)">
+    </div>
+    <div class="form-row">
+        <label for="node-input-conditionName"><i class="fa fa-bookmark"></i> Condition Name</label>
+        <input type="text" id="node-input-conditionName" placeholder="Human readable alarm name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-severity"><i class="fa fa-exclamation-triangle"></i> Severity</label>
+        <input type="number" id="node-input-severity" min="0" max="1000" placeholder="0-1000">
+        <div class="form-tips">Severity scale: 0 (lowest) to 1000 (highest)</div>
+    </div>
+    <div class="form-row">
+        <label style="width:100%;"><i class="fa fa-sign-in"></i> Input Variables</label>
+        <ol id="node-input-inputMappings-list"></ol>
+        <div class="form-tips">
+            Map variable names to UNS topics. These variables are used in the condition expression.
+        </div>
+    </div>
+    <div class="form-row">
+        <label for="node-input-condition"><i class="fa fa-code"></i> Condition</label>
+        <input type="text" id="node-input-condition" placeholder="e.g. temp > 80, pressure > 100 && flow < 10">
+        <div class="form-tips">
+            JavaScript expression that evaluates to true (alarm active) or false (normal).
+            Use the variable names defined above.
+        </div>
+    </div>
+    <div class="form-row">
+        <label for="node-input-outputTopic"><i class="fa fa-bell"></i> Output Topic</label>
+        <input type="text" id="node-input-outputTopic" placeholder="alarm/event">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="event-alarm">
+    <p>Alarm management node with ISA-18.2 lifecycle tracking. Subscribes to UNS topics,
+    evaluates a condition expression, and manages the full alarm lifecycle with stateful tracking.</p>
+
+    <h3>Properties</h3>
+    <dl class="message-properties">
+        <dt>Condition ID</dt>
+        <dd>Unique alarm identifier used as the state key. Defaults to the node ID.</dd>
+        <dt>Condition Name</dt>
+        <dd>Human-readable alarm name included in all output messages.</dd>
+        <dt>Severity</dt>
+        <dd>Alarm severity on a 0-1000 scale.</dd>
+        <dt>Input Variables</dt>
+        <dd>Map variable names to UNS topics (same as event-calc). These variables are available in the condition expression.</dd>
+        <dt>Condition</dt>
+        <dd>JavaScript expression that evaluates to <code>true</code> (alarm active) or <code>false</code> (normal).
+        Example: <code>temp > 80</code>, <code>pressure > 100 && flow < 10</code></dd>
+        <dt>Output Topic</dt>
+        <dd>Topic for output alarm event messages.</dd>
+    </dl>
+
+    <h3>Alarm Lifecycle (ISA-18.2)</h3>
+    <pre>
+    NORMAL ──condition true──► UNACK_ALM (Active + Unacknowledged)
+                                  │                    │
+                              ack │              condition false
+                                  ▼                    ▼
+                              ACK_ALM          UNACK_RTN
+                          (Active + Acked)  (Inactive + Unacked)
+                                  │                    │
+                        condition false            ack │
+                                  │                    │
+                                  ▼                    ▼
+                              NORMAL ◄─────────── NORMAL
+                           (Resolved)          (Resolved)
+    </pre>
+
+    <h3>Outputs</h3>
+    <p>The node has four outputs, one for each state transition:</p>
+    <ol>
+        <li><b>Raised</b> - Alarm activated (Active + Unacknowledged)</li>
+        <li><b>Acknowledged</b> - Alarm acknowledged by operator (Active + Acknowledged)</li>
+        <li><b>Cleared</b> - Condition cleared but not yet acknowledged (Inactive + Unacknowledged)</li>
+        <li><b>Resolved</b> - Alarm fully resolved, removed from state dictionary</li>
+    </ol>
+
+    <h4>Output Payload</h4>
+    <dl class="message-properties">
+        <dt>condition_id <span class="property-type">string</span></dt>
+        <dd>Unique alarm identifier</dd>
+        <dt>condition_name <span class="property-type">string</span></dt>
+        <dd>Human-readable alarm name</dd>
+        <dt>source <span class="property-type">string</span></dt>
+        <dd>The topic that triggered the alarm</dd>
+        <dt>source_node <span class="property-type">string</span></dt>
+        <dd>The node ID of the alarm node</dd>
+        <dt>active_state <span class="property-type">string</span></dt>
+        <dd>"Active" or "Inactive"</dd>
+        <dt>acked_state <span class="property-type">string</span></dt>
+        <dd>"Acknowledged" or "Unacknowledged"</dd>
+        <dt>severity <span class="property-type">number</span></dt>
+        <dd>0-1000 severity scale</dd>
+        <dt>retain <span class="property-type">boolean</span></dt>
+        <dd>true = still interesting, false = fully resolved</dd>
+        <dt>ts <span class="property-type">number</span></dt>
+        <dd>Event timestamp</dd>
+        <dt>lifecycle <span class="property-type">object</span></dt>
+        <dd>Timestamps for each lifecycle event: raised_ts, acked_ts, cleared_ts, resolved_ts</dd>
+    </dl>
+
+    <h3>Inputs</h3>
+    <p>Send messages to control alarm state:</p>
+    <dl class="message-properties">
+        <dt>payload.action = "ack" <span class="property-type">string</span></dt>
+        <dd>Acknowledge a specific alarm. Requires <code>payload.source</code> to identify which alarm.</dd>
+        <dt>payload.action = "ack_all" <span class="property-type">string</span></dt>
+        <dd>Acknowledge all active alarms.</dd>
+        <dt>payload.action = "list" <span class="property-type">string</span></dt>
+        <dd>List all active alarms (sent on output 4).</dd>
+    </dl>
+
+    <h3>State Persistence</h3>
+    <p>Alarm state is stored in node context and persists across Node-RED restarts.
+    Each alarm is keyed by the source topic that triggered it. When the alarm lifecycle
+    completes (resolved), the entry is removed from the state dictionary.</p>
+
+    <h3>Examples</h3>
+    <h4>High Temperature Alarm</h4>
+    <p>Map <code>temp</code> to <code>plant/reactor1/temperature</code>, set condition to <code>temp > 80</code></p>
+
+    <h4>Combined Condition</h4>
+    <p>Map <code>pressure</code> and <code>flow</code> to their topics, set condition to <code>pressure > 100 && flow < 10</code></p>
+
+    <h4>Acknowledging an Alarm</h4>
+    <p>Send: <code>{"payload": {"action": "ack", "source": "plant/reactor1/temperature"}}</code></p>
+</script>

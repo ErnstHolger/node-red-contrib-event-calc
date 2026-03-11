@@ -1,0 +1,125 @@
+<style>
+    .event-calc-white-text { fill: #ffffff !important; }
+    .red-ui-palette-node[data-palette-type="simple-frame"] .red-ui-palette-label { color: #ffffff !important; }
+</style>
+
+<script type="text/javascript">
+    RED.nodes.registerType('simple-frame', {
+        category: 'event calc',
+        color: '#4A90D9',
+        defaults: {
+            name: { value: "" },
+            eventType: { value: "" },
+            eventTypeType: { value: "str" },
+            eventName: { value: "" },
+            eventNameType: { value: "str" },
+            triggerField: { value: "payload" },
+            metadataField: { value: "" },
+            outputTopic: { value: "" }
+        },
+        inputs: 1,
+        outputs: 2,
+        outputLabels: ["start", "end"],
+        icon: "font-awesome/fa-bookmark",
+        label: function() {
+            return this.name || "simple frame";
+        },
+        paletteLabel: "simple frame",
+        labelStyle: function() { return (this.name ? "node_label_italic" : "") + " event-calc-white-text"; },
+        oneditprepare: function() {
+            $("#node-input-eventType").typedInput({
+                default: 'str',
+                types: ['str', 'msg', 'flow', 'global', 'env'],
+                typeField: "#node-input-eventTypeType"
+            });
+            $("#node-input-eventName").typedInput({
+                default: 'str',
+                types: ['str', 'msg', 'flow', 'global', 'env'],
+                typeField: "#node-input-eventNameType"
+            });
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="simple-frame">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-eventType"><i class="fa fa-bookmark"></i> Event Type</label>
+        <input type="text" id="node-input-eventType" placeholder="e.g. maintenance">
+        <input type="hidden" id="node-input-eventTypeType">
+    </div>
+    <div class="form-row">
+        <label for="node-input-eventName"><i class="fa fa-pencil"></i> Event Name</label>
+        <input type="text" id="node-input-eventName" placeholder="e.g. Oil Change">
+        <input type="hidden" id="node-input-eventNameType">
+    </div>
+    <div class="form-row">
+        <label for="node-input-triggerField"><i class="fa fa-bolt"></i> Trigger Field</label>
+        <input type="text" id="node-input-triggerField" placeholder="payload">
+        <div class="form-tips">Message property: <code>truthy</code> starts, <code>falsy</code> ends the event.</div>
+    </div>
+    <div class="form-row">
+        <label for="node-input-metadataField"><i class="fa fa-info-circle"></i> Metadata Field</label>
+        <input type="text" id="node-input-metadataField" placeholder="e.g. metadata">
+        <div class="form-tips">Optional <code>msg</code> property containing extra metadata (string or object).</div>
+    </div>
+    <div class="form-row">
+        <label for="node-input-outputTopic"><i class="fa fa-envelope"></i> Output Topic</label>
+        <input type="text" id="node-input-outputTopic" placeholder="auto: event/{type}/start|end">
+        <div class="form-tips">Override <code>msg.topic</code>. Leave blank for automatic: <code>event/{type}/start</code> and <code>event/{type}/end</code>.</div>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="simple-frame">
+    <p>A simple event frame that tracks start and end times.</p>
+
+    <h3>Properties</h3>
+    <dl class="message-properties">
+        <dt>Event Type</dt>
+        <dd>A label for the kind of event (e.g. "maintenance", "downtime", "shift").
+        Can be a static string, msg property, flow/global context, or env variable.</dd>
+        <dt>Event Name</dt>
+        <dd>A descriptive name for the event (e.g. "Oil Change", "Day Shift").
+        Supports the same input types as Event Type.</dd>
+        <dt>Trigger Field</dt>
+        <dd>Message property: truthy starts, falsy ends the event record.</dd>
+        <dt>Metadata Field</dt>
+        <dd>Optional msg property for extra metadata (stored as string).</dd>
+        <dt>Output Topic</dt>
+        <dd>Override msg.topic. Leave blank to auto-generate <code>event/{type}/start</code> and <code>event/{type}/end</code>.</dd>
+    </dl>
+
+    <h3>Inputs</h3>
+    <p>Any message. The trigger field determines start/end:</p>
+    <ul>
+        <li><b>Truthy</b> (and no active event): starts a new event record</li>
+        <li><b>Falsy</b> (and event is active): ends the current record</li>
+    </ul>
+
+    <h3>Outputs</h3>
+    <ol>
+        <li><b>Start</b> — emits when a new event begins (state: "running")</li>
+        <li><b>End</b> — emits the completed record with <code>endtime</code> filled in (state: "complete")</li>
+    </ol>
+
+    <h3>Output Record</h3>
+    <pre>{
+  "id": "auto-generated UUID",
+  "starttime": "2024-01-15T10:30:00.000Z",
+  "endtime": "9999-12-31T23:59:59.000Z",
+  "type": "maintenance",
+  "name": "Oil Change",
+  "state": "complete",
+  "metadata": ""
+}</pre>
+
+    <h3>Details</h3>
+    <p>A simplified event frame — no ISA-88 hierarchy, no parent-child
+    relationships, no cascade. Just a clean start/end record for any event you
+    want to track.</p>
+    <p>Each node tracks one active event at a time. Send a truthy trigger to start,
+    and a falsy trigger to end. The active record is stored in node context.</p>
+</script>

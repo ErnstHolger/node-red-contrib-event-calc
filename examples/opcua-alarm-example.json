@@ -1,0 +1,516 @@
+[
+    {
+        "id": "opcua-alarm-flow",
+        "type": "tab",
+        "label": "OPC UA Alarm Example",
+        "disabled": false,
+        "info": "Demonstrates the event-alarm node with an OPC UA Alarm Simulation Server.\n\nPrerequisites:\n1. Install node-red-contrib-opcua\n2. Run the alarm_sim_server.py (pip install asyncua)\n3. Deploy this flow\n\nThe flow reads ActiveState_Id from 6 simulated alarms via OPC UA,\npushes them into the event cache, and uses event-alarm nodes to\ntrack the full alarm lifecycle (Raised > Ack > Cleared > Resolved)."
+    },
+    {
+        "id": "alarm-cache",
+        "type": "event-cache",
+        "name": "Alarm Cache",
+        "maxEntries": "10000",
+        "ttl": "0"
+    },
+    {
+        "id": "comment-opcua-title",
+        "type": "comment",
+        "z": "opcua-alarm-flow",
+        "name": "OPC UA Alarm Simulation - Event Alarm Demo",
+        "info": "Connect to opc.tcp://localhost:4840/freeopcua/server/\nReads ActiveState_Id for each alarm and feeds into event-alarm nodes.\n\nAlarm lifecycle outputs:\n  Output 1: Raised (Active + Unacknowledged)\n  Output 2: Acknowledged (Active + Acknowledged)\n  Output 3: Cleared (Inactive + Unacknowledged)\n  Output 4: Resolved (lifecycle complete)",
+        "x": 250,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "comment-sim-section",
+        "type": "comment",
+        "z": "opcua-alarm-flow",
+        "name": "--- Simulated OPC UA Inputs (use inject buttons to simulate) ---",
+        "info": "These inject nodes simulate the OPC UA ActiveState_Id values.\nReplace with actual OPC-UA-Client nodes for real use.",
+        "x": 280,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "inject-pump-active",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Pump P1A ACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/PumpTrip_P1A/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "true", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 150,
+        "y": 140,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-pump-inactive",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Pump P1A INACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/PumpTrip_P1A/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "false", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 160,
+        "y": 180,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-breaker-active",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Breaker MCC3 ACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/BreakerFault_MCC3/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "true", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 160,
+        "y": 240,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-breaker-inactive",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Breaker MCC3 INACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/BreakerFault_MCC3/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "false", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 170,
+        "y": 280,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-thickener-active",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Thickener Level ACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/HighLevel_Thickener/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "true", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 160,
+        "y": 340,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-thickener-inactive",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Thickener Level INACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/HighLevel_Thickener/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "false", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 170,
+        "y": 380,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-vibration-active",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Screen 2 Vibration ACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/VibrationHigh_Screen2/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "true", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 170,
+        "y": 440,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-vibration-inactive",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Screen 2 Vibration INACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/VibrationHigh_Screen2/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "false", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 180,
+        "y": 480,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-estop-active",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Conveyor 7 EStop ACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/EStop_Conveyor7/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "true", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 170,
+        "y": 540,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-estop-inactive",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Conveyor 7 EStop INACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/EStop_Conveyor7/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "false", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 170,
+        "y": 580,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-magnetite-active",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Magnetite Level ACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/MagnetiteLevel_Low/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "true", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 160,
+        "y": 640,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "inject-magnetite-inactive",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "Magnetite Level INACTIVE",
+        "props": [
+            { "p": "topic", "v": "opcua/AlarmSimulation/MagnetiteLevel_Low/ActiveState_Id", "vt": "str" },
+            { "p": "payload", "v": "false", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 170,
+        "y": 680,
+        "wires": [["event-in-alarms"]]
+    },
+    {
+        "id": "event-in-alarms",
+        "type": "event-in",
+        "z": "opcua-alarm-flow",
+        "name": "Push to Cache",
+        "cache": "alarm-cache",
+        "topicSource": "msg",
+        "topicPattern": "",
+        "x": 470,
+        "y": 400,
+        "wires": [[]]
+    },
+    {
+        "id": "comment-alarm-section",
+        "type": "comment",
+        "z": "opcua-alarm-flow",
+        "name": "--- Event Alarm Nodes (one per alarm) ---",
+        "info": "Each event-alarm node monitors one ActiveState_Id topic.\nCondition: active == true triggers the alarm.\nOutputs: Raised | Acknowledged | Cleared | Resolved",
+        "x": 800,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "alarm-pump",
+        "type": "event-alarm",
+        "z": "opcua-alarm-flow",
+        "name": "Pump P1A Trip",
+        "cache": "alarm-cache",
+        "conditionId": "PumpTrip_P1A",
+        "conditionName": "Heavy Media Pump P1A Trip",
+        "inputMappings": [
+            { "name": "active", "topic": "opcua/AlarmSimulation/PumpTrip_P1A/ActiveState_Id" }
+        ],
+        "condition": "active == true",
+        "severity": "800",
+        "outputTopic": "alarm/PumpTrip_P1A",
+        "x": 780,
+        "y": 160,
+        "wires": [["debug-raised"], ["debug-acked"], ["debug-cleared"], ["debug-resolved"]]
+    },
+    {
+        "id": "alarm-breaker",
+        "type": "event-alarm",
+        "z": "opcua-alarm-flow",
+        "name": "Breaker MCC3 Fault",
+        "cache": "alarm-cache",
+        "conditionId": "BreakerFault_MCC3",
+        "conditionName": "MCC3 Main Breaker Fault",
+        "inputMappings": [
+            { "name": "active", "topic": "opcua/AlarmSimulation/BreakerFault_MCC3/ActiveState_Id" }
+        ],
+        "condition": "active == true",
+        "severity": "900",
+        "outputTopic": "alarm/BreakerFault_MCC3",
+        "x": 790,
+        "y": 260,
+        "wires": [["debug-raised"], ["debug-acked"], ["debug-cleared"], ["debug-resolved"]]
+    },
+    {
+        "id": "alarm-thickener",
+        "type": "event-alarm",
+        "z": "opcua-alarm-flow",
+        "name": "Thickener Level High",
+        "cache": "alarm-cache",
+        "conditionId": "HighLevel_Thickener",
+        "conditionName": "Thickener Overflow Level High",
+        "inputMappings": [
+            { "name": "active", "topic": "opcua/AlarmSimulation/HighLevel_Thickener/ActiveState_Id" }
+        ],
+        "condition": "active == true",
+        "severity": "600",
+        "outputTopic": "alarm/HighLevel_Thickener",
+        "x": 790,
+        "y": 360,
+        "wires": [["debug-raised"], ["debug-acked"], ["debug-cleared"], ["debug-resolved"]]
+    },
+    {
+        "id": "alarm-vibration",
+        "type": "event-alarm",
+        "z": "opcua-alarm-flow",
+        "name": "Screen 2 Vibration High",
+        "cache": "alarm-cache",
+        "conditionId": "VibrationHigh_Screen2",
+        "conditionName": "Screen 2 Vibration Alarm High",
+        "inputMappings": [
+            { "name": "active", "topic": "opcua/AlarmSimulation/VibrationHigh_Screen2/ActiveState_Id" }
+        ],
+        "condition": "active == true",
+        "severity": "500",
+        "outputTopic": "alarm/VibrationHigh_Screen2",
+        "x": 800,
+        "y": 460,
+        "wires": [["debug-raised"], ["debug-acked"], ["debug-cleared"], ["debug-resolved"]]
+    },
+    {
+        "id": "alarm-estop",
+        "type": "event-alarm",
+        "z": "opcua-alarm-flow",
+        "name": "Conveyor 7 EStop",
+        "cache": "alarm-cache",
+        "conditionId": "EStop_Conveyor7",
+        "conditionName": "Conveyor 7 Emergency Stop",
+        "inputMappings": [
+            { "name": "active", "topic": "opcua/AlarmSimulation/EStop_Conveyor7/ActiveState_Id" }
+        ],
+        "condition": "active == true",
+        "severity": "1000",
+        "outputTopic": "alarm/EStop_Conveyor7",
+        "x": 790,
+        "y": 560,
+        "wires": [["debug-raised"], ["debug-acked"], ["debug-cleared"], ["debug-resolved"]]
+    },
+    {
+        "id": "alarm-magnetite",
+        "type": "event-alarm",
+        "z": "opcua-alarm-flow",
+        "name": "Magnetite Level Low",
+        "cache": "alarm-cache",
+        "conditionId": "MagnetiteLevel_Low",
+        "conditionName": "Magnetite Storage Tank Level Low",
+        "inputMappings": [
+            { "name": "active", "topic": "opcua/AlarmSimulation/MagnetiteLevel_Low/ActiveState_Id" }
+        ],
+        "condition": "active == true",
+        "severity": "400",
+        "outputTopic": "alarm/MagnetiteLevel_Low",
+        "x": 790,
+        "y": 660,
+        "wires": [["debug-raised"], ["debug-acked"], ["debug-cleared"], ["debug-resolved"]]
+    },
+    {
+        "id": "comment-ack-section",
+        "type": "comment",
+        "z": "opcua-alarm-flow",
+        "name": "--- Acknowledge Controls ---",
+        "info": "Send ack or ack_all actions to alarm nodes",
+        "x": 800,
+        "y": 740,
+        "wires": []
+    },
+    {
+        "id": "inject-ack-pump",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "ACK Pump P1A",
+        "props": [
+            { "p": "payload.action", "v": "ack", "vt": "str" },
+            { "p": "payload.source", "v": "opcua/AlarmSimulation/PumpTrip_P1A/ActiveState_Id", "vt": "str" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 610,
+        "y": 780,
+        "wires": [["alarm-pump"]]
+    },
+    {
+        "id": "inject-ack-breaker",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "ACK Breaker MCC3",
+        "props": [
+            { "p": "payload.action", "v": "ack", "vt": "str" },
+            { "p": "payload.source", "v": "opcua/AlarmSimulation/BreakerFault_MCC3/ActiveState_Id", "vt": "str" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 620,
+        "y": 820,
+        "wires": [["alarm-breaker"]]
+    },
+    {
+        "id": "inject-ack-all-pump",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "ACK ALL (Pump)",
+        "props": [
+            { "p": "payload.action", "v": "ack_all", "vt": "str" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 610,
+        "y": 860,
+        "wires": [["alarm-pump"]]
+    },
+    {
+        "id": "inject-list-pump",
+        "type": "inject",
+        "z": "opcua-alarm-flow",
+        "name": "LIST alarms (Pump)",
+        "props": [
+            { "p": "payload.action", "v": "list", "vt": "str" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 620,
+        "y": 900,
+        "wires": [["alarm-pump"]]
+    },
+    {
+        "id": "comment-debug-section",
+        "type": "comment",
+        "z": "opcua-alarm-flow",
+        "name": "--- Debug Outputs ---",
+        "info": "Each output shows a different alarm lifecycle state",
+        "x": 1080,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "debug-raised",
+        "type": "debug",
+        "z": "opcua-alarm-flow",
+        "name": "RAISED (Active+Unacked)",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "statusVal": "payload.condition_name",
+        "statusType": "msg",
+        "x": 1100,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "debug-acked",
+        "type": "debug",
+        "z": "opcua-alarm-flow",
+        "name": "ACKNOWLEDGED (Active+Acked)",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "statusVal": "payload.condition_name",
+        "statusType": "msg",
+        "x": 1110,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "debug-cleared",
+        "type": "debug",
+        "z": "opcua-alarm-flow",
+        "name": "CLEARED (Inactive+Unacked)",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "statusVal": "payload.condition_name",
+        "statusType": "msg",
+        "x": 1110,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "debug-resolved",
+        "type": "debug",
+        "z": "opcua-alarm-flow",
+        "name": "RESOLVED (Lifecycle Complete)",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "statusVal": "payload.condition_name",
+        "statusType": "msg",
+        "x": 1120,
+        "y": 320,
+        "wires": []
+    }
+]

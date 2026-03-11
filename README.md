@@ -1,10 +1,12 @@
 # node-red-contrib-event-calc
 
-Node-RED nodes for event caching and streaming calculations with a local pub/sub event hub.
+Node-RED nodes for event caching, streaming calculations, alarm management, and event framing.
 
 ## Overview
 
 This package provides a local in-memory event hub with topic-based publish/subscribe and latest-value caching for reactive data flows within Node-RED. Stream data from MQTT, OPC-UA, or any source, then perform calculations that trigger automatically when values update.
+
+Also includes ISA-88 batch structure tracking, ISA-18.2 alarm lifecycle management, and simple event recording.
 
 ## Architecture
 
@@ -34,14 +36,16 @@ Or install directly from the Node-RED palette manager.
 
 ## Nodes
 
-### event-cache (Config Node)
+### Core Nodes
+
+#### event-cache (Config Node)
 
 Central cache that stores topic values and manages subscriptions. Configure:
 
 - **Max Entries**: Maximum topics to cache (default: 10000). Oldest entries removed when exceeded.
 - **TTL**: Time-to-live in milliseconds. Set to 0 for no expiry.
 
-### event-in
+#### event-in
 
 Receives messages from any upstream node and pushes values to the cache.
 
@@ -51,7 +55,7 @@ Receives messages from any upstream node and pushes values to the cache.
 
 The original message passes through, allowing insertion into existing flows.
 
-### event-topic
+#### event-topic
 
 Subscribes to a topic and outputs when that topic updates.
 
@@ -66,7 +70,7 @@ Subscribes to a topic and outputs when that topic updates.
 - `msg.topic`: Change subscription topic
 - `msg.payload = 'refresh'`: Output current cached value
 
-### event-calc
+#### event-calc
 
 Subscribes to multiple topics and evaluates an expression when values update.
 
@@ -92,71 +96,113 @@ Subscribes to multiple topics and evaluates an expression when values update.
 }
 ```
 
-### event-json
+### Event Frame Nodes
 
-Bidirectional JSON envelope converter for MQTT messaging.
+#### event-frame (ISA-88 Batch Structure)
 
-**Behavior:**
-- **Unwrap**: If payload is `{value, topic?, timestamp?}`, extracts to msg properties
-- **Wrap**: If payload is any other value, wraps as `{timestamp, topic, value}`
+Creates ISA-88 procedural model records with hierarchical parent-child linking.
 
-**Usage:**
+**ISA-88 Levels:**
+- **Procedure** — top-level batch recipe
+- **Unit Procedure** — sequence within a unit
+- **Operation** — major processing step
+- **Phase** — lowest-level action
+
+**Features:**
+- Trigger-based: truthy starts, falsy ends
+- Auto-generated UUIDs
+- Parent-child linking via `parentLevel` config or `msg.frame_id` chaining
+- Cascade end: ending a parent auto-ends all children recursively
+- Shared global context tracker for cross-node coordination
+
+**Output Record:**
+```json
+{
+  "id": "auto-generated UUID",
+  "starttime": "2024-01-15T10:30:00.000Z",
+  "endtime": "9999-12-31T23:59:59.000Z",
+  "name": "Mixing",
+  "parent_id": "parent-uuid-or-empty",
+  "level": "operation",
+  "state": "running",
+  "batch_id": "BATCH-001",
+  "unit": "Reactor-1",
+  "metadata": ""
+}
 ```
-[MQTT in] → [event-json] → [event-in]     (unwrap JSON from broker)
-[event-topic] → [event-json] → [MQTT out] (wrap for broker)
+
+#### simple-frame (Simple Event Recorder)
+
+A simplified event frame for tracking any event with start/end time — no hierarchy, no cascade.
+
+**Properties:**
+- **Event Type**: Category label (str/msg/flow/global/env)
+- **Event Name**: Descriptive name (str/msg/flow/global/env)
+- **Metadata Field**: Optional msg property for extra data
+- **Two outputs**: start and end
+
+**Output Record:**
+```json
+{
+  "id": "auto-generated UUID",
+  "starttime": "2024-01-15T10:30:00.000Z",
+  "endtime": "9999-12-31T23:59:59.000Z",
+  "type": "maintenance",
+  "name": "Oil Change",
+  "state": "running",
+  "metadata": ""
+}
 ```
 
-### event-simulator
+### Alarm Management
+
+#### event-alarm (ISA-18.2 Alarm Lifecycle)
+
+Tracks alarms through the full ISA-18.2 lifecycle with four outputs.
+
+**Alarm States:**
+- **UNACK_ALM** — Active + Unacknowledged (just raised)
+- **ACK_ALM** — Active + Acknowledged (operator acked, condition still true)
+- **UNACK_RTN** — Inactive + Unacknowledged (condition cleared, not yet acked)
+- **NORM** — Normal (fully resolved)
+
+**Lifecycle Paths:**
+```
+Path A: NORM → UNACK_ALM → ACK_ALM → NORM (ack first, then clear)
+Path B: NORM → UNACK_ALM → UNACK_RTN → NORM (clear first, then ack)
+```
+
+**Properties:**
+- **Condition ID/Name**: Alarm identifier and description
+- **Input Mappings**: Map variable names to cache topics (like event-calc)
+- **Condition**: Expression that evaluates to true/false (e.g. `active == true`)
+- **Severity**: 0-1000 scale
+- **4 Outputs**: raised, acknowledged, cleared, resolved
+
+**Actions (via msg.payload):**
+- `{ action: "ack", source: "topic" }` — Acknowledge specific alarm
+- `{ action: "ack_all" }` — Acknowledge all active alarms
+- `{ action: "list" }` — List all active alarms
+
+### Utility Nodes
+
+#### event-flatten
+
+Flattens nested objects into individual topic/value pairs for the cache.
+
+#### event-preview
+
+Preview cached values directly in the Node-RED editor.
+
+#### event-simulator
 
 Generates simulated data for testing. Supports sine waves, random values, and ramps.
 
-### event-chart
+#### event-chart
 
 Real-time charting node for visualizing cached event data.
 
-## Examples
-
-### Average Temperature
-
-```
-[inject: room1/temp] → [event-in] → [cache]
-[inject: room2/temp] → [event-in] → [cache]
-
-[event-calc] → [debug]
-  inputs: a = sensors/room1/temp
-          b = sensors/room2/temp
-  expression: (a + b) / 2
-  trigger: all
-```
-
-### Time-based Calculations (External Trigger)
-
-```
-[inject: every 1 min] → [event-calc (external trigger)] → [MQTT out]
-  inputs: a = sensors/power
-          b = sensors/voltage
-  expression: a * b
-```
-
-### MQTT Round-trip with JSON Envelope
-
-```
-[MQTT in] → [event-json] → [event-in] → [cache]
-
-[event-calc] → [event-json] → [MQTT out]
-```
-
-### Calculate Power (Voltage × Current)
-
-```
-[event-calc]
-  inputs: v = power/voltage
-          i = power/current
-  expression: v * i
-  topic: power/watts
-```
-
-## Built-in Functions
+## Built-in Functions (event-calc)
 
 ### Math
 | Function | Description |
@@ -198,8 +244,6 @@ Real-time charting node for visualizing cached event data.
 | `hasChanged('varName')` | `true` if value differs from previous (false on first message) |
 | `timeSinceLastChange('varName')` | Milliseconds since the value last changed |
 
-The cache automatically tracks the previous value for every topic. On the first message, `prev()` returns the same value as the current (so `hasChanged()` returns `false` and delta is `0`).
-
 ### Date/Time
 | Function | Description |
 |----------|-------------|
@@ -226,13 +270,9 @@ The cache automatically tracks the previous value for every topic. On the first 
 | `clamp(a, 0, 100)` | Constrain 0-100 |
 | `map(a, 0, 1023, 0, 100)` | Scale ADC to % |
 | `ifelse(a > b, 'high', 'low')` | Conditional |
-| `pctChange(a, b)` | % change from b to a |
 | `hasChanged('temp')` | Did temperature just change? |
 | `temp - prev('temp')` | Delta from previous value |
-| `round(timeSinceLastChange('temp') / 1000, 1)` | Seconds since last change |
 | `isWeekday() && hoursBetween(8, 18)` | During business hours? |
-| `hoursBetween(22, 6)` | Night shift (wraps midnight) |
-| `ifelse(isWeekend(), temp * 0.8, temp)` | Reduce setpoint on weekends |
 
 ## API (for custom nodes)
 
@@ -247,10 +287,6 @@ cache.setValue('topic/path', 42, { source: 'sensor' });
 // Get a value
 const entry = cache.getValue('topic/path');
 // { value: 42, ts: 1704000000000, metadata: { source: 'sensor' }, previous: { value: 40, ts: ..., metadata: ... } }
-
-// Get previous value
-const prev = cache.getPrevious('topic/path');
-// { value: 40, ts: 1703999990000, metadata: { source: 'sensor' } }
 
 // Subscribe to updates
 const subId = cache.subscribe('sensors/room1/temp', (topic, entry) => {
@@ -270,9 +306,11 @@ cache.clear();
 ## HTTP Admin Endpoints
 
 ```
-GET  /event-cache/:id/stats   - Cache statistics
-GET  /event-cache/:id/topics  - List all topics
-POST /event-cache/:id/clear   - Clear cache
+GET  /event-cache/:id/stats    - Cache statistics
+GET  /event-cache/:id/topics   - List all topics
+POST /event-cache/:id/clear    - Clear cache
+GET  /event-frame/tracker      - Current batch tracker state
+GET  /event-alarm/:id/alarms   - Active alarms for a node
 ```
 
 ## License

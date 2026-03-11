@@ -1,0 +1,192 @@
+<style>
+    .event-calc-white-text { fill: #ffffff !important; }
+    .red-ui-palette-node[data-palette-type="event-frame"] .red-ui-palette-label { color: #ffffff !important; }
+</style>
+
+<script type="text/javascript">
+    RED.nodes.registerType('event-frame', {
+        category: 'event calc',
+        color: '#8B6914',
+        defaults: {
+            name: { value: "" },
+            level: { value: "operation" },
+            batchName: { value: "" },
+            batchNameType: { value: "str" },
+            unit: { value: "" },
+            unitType: { value: "str" },
+            batchId: { value: "" },
+            batchIdType: { value: "str" },
+            parentLevel: { value: "" },
+            triggerField: { value: "payload" },
+            metadataField: { value: "" },
+            contextKey: { value: "isa88_batches" },
+            endChildren: { value: true }
+        },
+        inputs: 1,
+        outputs: 2,
+        outputLabels: ["start", "end"],
+        icon: "font-awesome/fa-industry",
+        label: function() {
+            return this.name || this.level || "event frame";
+        },
+        paletteLabel: "event frame",
+        labelStyle: function() { return (this.name ? "node_label_italic" : "") + " event-calc-white-text"; },
+        oneditprepare: function() {
+            var node = this;
+            // Typed inputs for dynamic values
+            $("#node-input-batchName").typedInput({
+                default: 'str',
+                types: ['str', 'msg', 'flow', 'global', 'env'],
+                typeField: "#node-input-batchNameType"
+            });
+            $("#node-input-unit").typedInput({
+                default: 'str',
+                types: ['str', 'msg', 'flow', 'global', 'env'],
+                typeField: "#node-input-unitType"
+            });
+            $("#node-input-batchId").typedInput({
+                default: 'str',
+                types: ['str', 'msg', 'flow', 'global', 'env'],
+                typeField: "#node-input-batchIdType"
+            });
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="event-frame">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-level"><i class="fa fa-sitemap"></i> ISA-88 Level</label>
+        <select id="node-input-level">
+            <option value="procedure">Procedure</option>
+            <option value="unit_procedure">Unit Procedure</option>
+            <option value="operation">Operation</option>
+            <option value="phase">Phase</option>
+        </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-parentLevel"><i class="fa fa-level-up"></i> Parent Level</label>
+        <select id="node-input-parentLevel">
+            <option value="">(none)</option>
+            <option value="procedure">Procedure</option>
+            <option value="unit_procedure">Unit Procedure</option>
+            <option value="operation">Operation</option>
+            <option value="phase">Phase</option>
+        </select>
+        <div class="form-tips">Links this record's <code>parent_id</code> to the currently active record at the selected level.</div>
+    </div>
+    <div class="form-row">
+        <label for="node-input-triggerField"><i class="fa fa-bolt"></i> Trigger Field</label>
+        <input type="text" id="node-input-triggerField" placeholder="payload">
+        <div class="form-tips">Message property that is <code>true</code> to start and <code>false</code> to end.</div>
+    </div>
+    <div class="form-row">
+        <label for="node-input-batchName"><i class="fa fa-pencil"></i> Batch Name</label>
+        <input type="text" id="node-input-batchName" placeholder="optional">
+        <input type="hidden" id="node-input-batchNameType">
+    </div>
+    <div class="form-row">
+        <label for="node-input-batchId"><i class="fa fa-barcode"></i> Batch ID</label>
+        <input type="text" id="node-input-batchId" placeholder="optional">
+        <input type="hidden" id="node-input-batchIdType">
+    </div>
+    <div class="form-row">
+        <label for="node-input-unit"><i class="fa fa-cube"></i> Unit</label>
+        <input type="text" id="node-input-unit" placeholder="optional">
+        <input type="hidden" id="node-input-unitType">
+    </div>
+    <div class="form-row">
+        <label for="node-input-metadataField"><i class="fa fa-info-circle"></i> Metadata Field</label>
+        <input type="text" id="node-input-metadataField" placeholder="e.g. metadata">
+        <div class="form-tips">Optional <code>msg</code> property containing extra metadata (string or object).</div>
+    </div>
+    <div class="form-row">
+        <label for="node-input-contextKey"><i class="fa fa-database"></i> Context Key</label>
+        <input type="text" id="node-input-contextKey" placeholder="isa88_batches">
+        <div class="form-tips">Global context key used to track active batch records across levels.</div>
+    </div>
+    <div class="form-row">
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-input-endChildren" style="width:auto; margin-right:5px;">
+        <label for="node-input-endChildren" style="width:auto;"> Auto-end children when this frame ends</label>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="event-frame">
+    <p>Creates ISA-88 batch structure records with start/end tracking.</p>
+
+    <h3>ISA-88 Procedural Model</h3>
+    <p>The ISA-88 standard defines a hierarchical procedural model:</p>
+    <ul>
+        <li><b>Procedure</b> — top-level batch recipe</li>
+        <li><b>Unit Procedure</b> — sequence within a unit</li>
+        <li><b>Operation</b> — major processing step</li>
+        <li><b>Phase</b> — lowest-level action</li>
+    </ul>
+
+    <h3>Properties</h3>
+    <dl class="message-properties">
+        <dt>ISA-88 Level</dt>
+        <dd>The procedural level of this batch record.</dd>
+        <dt>Parent Level</dt>
+        <dd>Optional. Links <code>parent_id</code> to the currently active record at the selected level.
+        Not needed when chaining — <code>msg.frame_id</code> from a parent node is used automatically.</dd>
+        <dt>Trigger Field</dt>
+        <dd>Message property: truthy starts, falsy ends the record.</dd>
+        <dt>Batch Name / Batch ID / Unit</dt>
+        <dd>Optional fields — can be static strings, msg properties, flow/global context, or env vars.</dd>
+        <dt>Metadata Field</dt>
+        <dd>Optional msg property for extra metadata (stored as string).</dd>
+        <dt>Context Key</dt>
+        <dd>Global context key for tracking active records (default: <code>isa88_batches</code>).</dd>
+        <dt>Auto-end children</dt>
+        <dd>When enabled (default), ending this frame automatically ends all child frames whose <code>parent_id</code> matches this frame's ID. Cascades recursively.</dd>
+    </dl>
+
+    <h3>Inputs</h3>
+    <p>Any message. The trigger field determines start/end:</p>
+    <ul>
+        <li><b>Truthy</b> (and no active record): starts a new batch record</li>
+        <li><b>Falsy</b> (and record is active): ends the current record</li>
+    </ul>
+
+    <h3>Outputs</h3>
+    <ol>
+        <li><b>Start</b> — emits when a new batch record begins</li>
+        <li><b>End</b> — emits the completed record with <code>endtime</code> filled in</li>
+    </ol>
+
+    <h3>Output Record</h3>
+    <pre>{
+  "id": "auto-generated UUID",
+  "starttime": "2024-01-15T10:30:00.000Z",
+  "endtime": "9999-12-31T23:59:59.000Z",
+  "name": "Mixing",
+  "parent_id": "parent-uuid-or-empty",
+  "level": "operation",
+  "state": "complete",
+  "batch_id": "BATCH-001",
+  "unit": "Reactor-1",
+  "metadata": ""
+}</pre>
+
+    <h3>Chaining</h3>
+    <p>Wire the <b>Start</b> output of a parent frame to the input of a child frame.
+    The start message carries <code>msg.frame_id</code> which the child automatically
+    uses as its <code>parent_id</code>. No need to set Parent Level when chaining.</p>
+    <pre>
+  [Procedure] ──start──► [Operation] ──start──► [Phase]
+    </pre>
+    <p>When <b>Auto-end children</b> is enabled, ending the Procedure will automatically
+    end the Operation, which in turn ends the Phase (recursive cascade).</p>
+
+    <h3>Details</h3>
+    <p>Use one node per ISA-88 level. Link them by wiring start outputs to child inputs,
+    or set <b>Parent Level</b> for lookup-based linking.</p>
+
+    <p>Multiple instances sharing the same <b>Context Key</b> can coordinate
+    across the hierarchy.</p>
+</script>
